@@ -1,154 +1,79 @@
-#include <Arduino_GFX_Library.h>
-#include <Adafruit_NeoPixel.h>
+#include <TFT_eSPI.h>
+#include <SPI.h>
 
-// =====================================================
-// STACKSWORTHmini
-// Option B - Card layout (lowered slightly)
-// =====================================================
+TFT_eSPI tft = TFT_eSPI();
 
-// -------- Colors (RGB565) --------
-#define BLACK     0x0000
-#define WHITE     0xFFFF
-#define RED       0xF800
-#define GREEN     0x07E0
-#define BLUE      0x001F
-#define CYAN      0x07FF
-#define ORANGE    0xFD20
-#define GREY      0x8410
-#define DARKGREY  0x4208
+#define SW_BLACK   0x0000
+#define SW_WHITE   0xFFFF
+#define SW_ORANGE  0xFD20
+#define SW_CYAN    0x07FF
+#define SW_DARK    0x0841
+#define SW_PANEL   0x1082
 
-// -------- Pins --------
-#define LCD_MOSI 6
-#define LCD_SCLK 7
-#define LCD_CS   14
-#define LCD_DC   15
-#define LCD_RST  21
-#define LCD_BL   22
-#define RGB_PIN  8
+void drawCard(int x, int y, int w, int h, const char* title, const char* value) {
+  tft.fillRoundRect(x, y, w, h, 10, SW_PANEL);
+  tft.drawRoundRect(x, y, w, h, 10, SW_ORANGE);
 
-#define LCD_WIDTH  172
-#define LCD_HEIGHT 320
+  tft.setTextColor(SW_CYAN, SW_PANEL);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString(title, x + 10, y + 8, 2);
 
-// -------- RGB LED --------
-#define NUM_PIXELS 1
-Adafruit_NeoPixel pixel(NUM_PIXELS, RGB_PIN, NEO_GRB + NEO_KHZ800);
-
-// -------- Display --------
-Arduino_DataBus *bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCLK, LCD_MOSI);
-
-Arduino_GFX *gfx = new Arduino_ST7789(
-  bus,
-  LCD_RST,
-  0,
-  true,
-  LCD_WIDTH,
-  LCD_HEIGHT,
-  34,
-  0,
-  34,
-  0
-);
-
-// -------- Placeholder values --------
-String displayPrice = "$943,228";
-String displayBlock = "893245";
-String displayTime  = "10:42 PM";
-String footerText   = "STACKSWORTH.COM";
-
-// -------- RGB timing --------
-uint16_t hueValue = 0;
-unsigned long lastRGBUpdate = 0;
-
-// =====================================================
-// RGB rainbow
-// =====================================================
-void updateRainbowLED() {
-  if (millis() - lastRGBUpdate > 20) {
-    lastRGBUpdate = millis();
-    pixel.setPixelColor(0, pixel.gamma32(pixel.ColorHSV(hueValue)));
-    pixel.show();
-    hueValue += 256;
-  }
+  tft.setTextColor(SW_WHITE, SW_PANEL);
+  tft.drawString(value, x + 10, y + 32, 4);
 }
 
-// =====================================================
-// UI FUNCTIONS
-// =====================================================
-void drawHeader() {
-  gfx->drawRoundRect(8, 18, 156, 38, 8, ORANGE);
+void drawCoreUI() {
+  tft.fillScreen(SW_BLACK);
 
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  gfx->setCursor(22, 24);
-  gfx->print("STACKSWORTH");
+  // Header
+  tft.fillRoundRect(8, 8, 224, 46, 10, SW_PANEL);
+  tft.drawRoundRect(8, 8, 224, 46, 10, SW_ORANGE);
 
-  gfx->setTextColor(ORANGE);
-  gfx->setTextSize(2);
-  gfx->setCursor(78, 36);
-  gfx->print("mini");
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(SW_ORANGE, SW_PANEL);
+  tft.drawString("STACKSWORTH", 120, 21, 2);
+
+  tft.setTextColor(SW_WHITE, SW_PANEL);
+  tft.drawString("CORE", 120, 41, 4);
+
+  // Main price block
+  tft.fillRoundRect(8, 62, 224, 72, 12, SW_PANEL);
+  tft.drawRoundRect(8, 62, 224, 72, 12, SW_CYAN);
+
+  tft.setTextColor(SW_CYAN, SW_PANEL);
+  tft.drawString("BITCOIN PRICE", 120, 78, 2);
+
+  tft.setTextColor(SW_WHITE, SW_PANEL);
+  tft.drawString("$108,420", 120, 111, 4);
+
+  // Metric cards
+  drawCard(8, 144, 106, 64, "BLOCK", "893179");
+  drawCard(126, 144, 106, 64, "FEE", "12 sat/vB");
+
+  drawCard(8, 218, 106, 64, "MINER", "Foundry");
+  drawCard(126, 218, 106, 64, "SATS/USD", "923");
+
+  // Footer
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(SW_ORANGE, SW_BLACK);
+  tft.drawString("Bitcoin's Pulse at a Glance", 120, 306, 2);
 }
 
-void drawMetricCard(int x, int y, int w, int h, const char *label, const String &value, uint16_t borderColor) {
-  gfx->drawRoundRect(x, y, w, h, 10, borderColor);
-  gfx->drawRoundRect(x + 1, y + 1, w - 2, h - 2, 10, DARKGREY);
-
-  gfx->setTextColor(borderColor);
-  gfx->setTextSize(1);
-  gfx->setCursor(x + 10, y + 8);
-  gfx->print(label);
-
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(3);
-  gfx->setCursor(x + 8, y + 30);
-  gfx->print(value);
-}
-
-void drawFooter(const String &text) {
-  gfx->drawFastHLine(12, 292, 148, DARKGREY);
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(1);
-  gfx->setCursor(26, 302);
-  gfx->print(text);
-}
-
-void drawMainScreen() {
-  gfx->fillScreen(BLACK);
-
-  drawHeader();
-  drawMetricCard(8, 66, 156, 64, "PRICE", displayPrice, WHITE);
-  drawMetricCard(8, 140, 156, 64, "BLOCK", displayBlock, CYAN);
-  drawMetricCard(8, 214, 156, 64, "TIME", displayTime, BLUE);
-  drawFooter(footerText);
-}
-
-// =====================================================
-// SETUP
-// =====================================================
 void setup() {
-  delay(200);
+  Serial.begin(115200);
+  delay(300);
 
-  pinMode(LCD_BL, OUTPUT);
-  digitalWrite(LCD_BL, HIGH);
+  pinMode(21, OUTPUT);
+  digitalWrite(21, HIGH);
 
-  pixel.begin();
-  pixel.setBrightness(40);
-  pixel.clear();
-  pixel.show();
+  tft.init();
+  tft.setRotation(0);   // portrait: 240 x 320
+  tft.setTextWrap(false);
 
-  if (!gfx->begin()) {
-    while (1) {
-      updateRainbowLED();
-      delay(10);
-    }
-  }
+  drawCoreUI();
 
-  gfx->setRotation(0);
-  drawMainScreen();
+  Serial.println("STACKSWORTH CORE display test loaded.");
 }
 
-// =====================================================
-// LOOP
-// =====================================================
 void loop() {
-  updateRainbowLED();
 }
