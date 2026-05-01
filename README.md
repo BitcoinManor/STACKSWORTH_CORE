@@ -24,7 +24,8 @@ Built on an affordable 2.8" display platform, CORE serves as the perfect entry p
 - ESP32-based development board  
 - 2.8" TFT LCD display  
 - USB-powered  
-- Optional custom CNC enclosure plates  
+- Optional custom CNC enclosure plates
+- Drivers  #define ST7789_DRIVER or #define ILI9341_DRIVER based on your LCD display
 
 ---
 
