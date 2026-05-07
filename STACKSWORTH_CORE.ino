@@ -1,3 +1,5 @@
+//STACKSWORTH_CORE_v1.0.1
+
 #include <LovyanGFX.hpp>
 
 class LGFX : public lgfx::LGFX_Device
