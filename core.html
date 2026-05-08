@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>STACKSWORTH CORE Setup</title>
+  
+  <!-- 🔥 Custom Bitcoin Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%23fca420' stroke='%23ff8800' stroke-width='4'/><text x='50' y='65' font-family='Arial,sans-serif' font-size='60' font-weight='bold' text-anchor='middle' fill='%23000'>₿</text></svg>">
+  
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #000000;
+      font-family: 'Segoe UI', sans-serif;
+      color: white;
+      width: 100%;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px 0;
+      
+      /* 🌌 SUBTLE GRID BACKGROUND */
+      background-image: 
+        linear-gradient(rgba(252, 164, 32, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(252, 164, 32, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 0;
+    }
+
+    .card {
+      background-color: #000000;
+      border-radius: 12px;
+      padding: 30px 24px;
+      max-width: 1000px;
+      width: 95%;
+      text-align: center;
+      border: 4px solid;
+      border-image: linear-gradient(135deg, #aaa, #eee) 1;
+      box-shadow: 0 0 25px rgba(192,192,192, 0.4), 0 0 10px rgba(255,255,255,0.1);
+    }
+
+    .card:hover {
+      box-shadow: 0 0 40px rgba(255,255,255, 0.6), 0 0 12px rgba(255,255,255,0.2);
+      transition: box-shadow 0.3s ease;
+    }
+
+    /* 📱 Two Column Layout for Desktop */
+    .form-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      margin-top: 30px;
+    }
+
+    .form-column {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .column-title {
+      color: #fca420;
+      font-weight: bold;
+      font-size: 1.1rem;
+      margin-bottom: 20px;
+      text-align: center;
+      border-bottom: 2px solid #333;
+      padding-bottom: 10px;
+    }
+
+    /* 📱 Mobile Responsive */
+    @media (max-width: 768px) {
+      .form-container {
+        grid-template-columns: 1fr;
+        gap: 30px;
+      }
+      
+      .card {
+        padding: 20px 16px;
+        max-width: 95%;
+      }
+      
+      /* Fix logo overflow on small screens */
+      .logo {
+        font-size: 1.6rem !important;
+        letter-spacing: 2px !important;
+        padding: 10px 0 !important;
+      }
+    }
+
+    /* --- MOBILE FIXES --- */
+    @media (max-width: 600px) {
+      html, body {
+        overflow-x: hidden !important;
+        max-width: 100% !important;
+      }
+
+      * {
+        box-sizing: border-box !important;
+        max-width: 100% !important;
+      }
+
+      body {
+        justify-content: flex-start !important;
+        align-items: stretch !important;
+      }
+
+      .card {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 auto !important;
+        padding: 16px !important;
+      }
+
+      .form-group {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+      }
+
+      .form-group label {
+        width: 100% !important;
+        margin-bottom: 6px !important;
+        font-size: 0.8rem !important;
+      }
+
+      .form-group input,
+      .form-group select,
+      .password-wrap {
+        width: 100% !important;
+        flex: unset !important;
+      }
+
+      input::placeholder {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .personalization-box {
+        width: 100% !important;
+        overflow: hidden !important;
+        padding: 12px !important;
+        box-sizing: border-box !important;
+      }
+
+      .personalization-box input {
+        width: 100% !important;
+      }
+
+      .personalization-box div {
+        font-size: 0.8rem !important;
+        line-height: 1.2 !important;
+      }
+
+      #btcQuote {
+        font-size: 0.7rem !important;
+        padding: 0 4px !important;
+      }
+
+      .popup {
+        top: 5% !important;
+        width: 92% !important;
+      }
+    }
+
+    .logo {
+      border: 2px solid silver;
+      background-color: #000000;
+      color: silver;
+      font-weight: bold;
+      padding: 14px 0;
+      border-radius: 6px;
+      font-size: 2.8rem;
+      letter-spacing: 4px;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      margin-bottom: 18px;
+      font-size: 1.4rem;
+    }
+
+    .form-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 15px;
+    }
+
+    .form-group label {
+      flex: 1;
+      margin-right: 10px;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    .form-group input,
+    .form-group select {
+      flex: 2;
+      padding: 8px 10px;
+      border-radius: 4px;
+      border: 1px solid #777;
+      background-color: #000000;
+      color: white;
+      font-size: 1rem;
+    }
+
+    .button {
+      margin-top: 20px;
+      width: 100%;
+      background: linear-gradient(145deg, #999999, #cccccc);
+      color: black;
+      font-weight: bold;
+      border: none;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .button:hover {
+      background: linear-gradient(145deg, #cccccc, #eeeeee);
+    }
+
+    .button:active {
+      background: linear-gradient(145deg, #fca420, #ff8800);
+      color: white;
+      transform: scale(0.98);
+    }
+
+    .button.clicked {
+      background: linear-gradient(145deg, #fca420, #ff8800);
+      color: white;
+      pointer-events: none;
+    }
+
+    .version {
+      margin-top: 20px;
+      font-size: 0.85rem;
+      color: #777;
+    }
+
+    .footer {
+      margin-top: 40px;
+      font-size: 0.85rem;
+      color: #aaa;
+      text-align: center;
+    }
+
+    .footer a {
+      color: #fca420;
+      text-decoration: none;
+    }
+
+    .popup {
+      display: none;
+      background-color: #111;
+      color: #fca420;
+      border: 1px solid #fca420;
+      padding: 20px;
+      border-radius: 10px;
+      position: absolute;
+      top: 10%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80%;
+      max-width: 360px;
+      text-align: center;
+      box-shadow: 0 0 10px #000;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+
+    .password-wrap { 
+      display: flex; 
+      align-items: center; 
+      gap: 8px; 
+      flex: 2;
+    }
+    
+    .password-wrap input {
+      flex: 1;
+      margin: 0;
+    }
+    
+    .pw-toggle {
+      background: none;
+      border: 1px solid #777;
+      border-radius: 4px;
+      padding: 6px 10px;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 0.95rem;
+      line-height: 1;
+      min-width: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .pw-toggle:hover { 
+      border-color: #aaa; 
+      color: #eee; 
+    }
+
+    /* ✨ PERSONALIZATION BOX HOVER GLOW */
+    .personalization-box {
+      transition: all 0.3s ease;
+    }
+
+    .personalization-box:hover {
+      background: rgba(252, 164, 32, 0.15) !important;
+      border-color: #ffb84d !important;
+      box-shadow: 0 0 15px rgba(252, 164, 32, 0.4), inset 0 0 10px rgba(252, 164, 32, 0.1);
+    }
+
+    /* 🎮 Hidden Easter Egg Styles */
+    .bitcoin-rain {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1000;
+      overflow: hidden;
+    }
+
+    .bitcoin-symbol {
+      position: absolute;
+      color: #fca420;
+      font-size: 20px;
+      font-weight: bold;
+      animation: fall 3s linear infinite;
+    }
+
+    @keyframes fall {
+      0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+    }
+
+    .block-countdown {
+      background: linear-gradient(45deg, #fca420, #ff8800);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+
+    @keyframes glow {
+      from { filter: brightness(1); }
+      to { filter: brightness(1.3); }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">STACKSWORTH CORE</div>
+    <h2>Wi-Fi Setup & Personalization</h2>
+    
+    <!-- 🎮 Easter Egg Hint -->
+    <div style="margin: 15px 0; font-size: 1.2rem; letter-spacing: 3px; color: #fca420;">
+      🎮 ↑↑↓↓←→←→🅱️🅰️
+    </div>
+
+    <div class="form-container">
+      <!-- 🌐 LEFT COLUMN: Network & Location -->
+      <div class="form-column">
+        <div class="column-title">🌐 SETUP</div>
+        
+        <!-- 🔐 NETWORK CREDENTIALS -->
+        <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
+          <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
+            🔐 NETWORK CREDENTIALS
+          </div>
+          <div class="form-group">
+            <label for="ssid">WiFi Name</label>
+            <input type="text" id="ssid" name="ssid" placeholder="Your WiFi SSID">
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <div class="password-wrap">
+              <input type="password" id="password" name="password" placeholder="WiFi Password">
+              <button type="button" class="pw-toggle" id="pwToggle" onclick="togglePassword()" aria-label="Show password">👁</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 📍 LOCATION & TIME -->
+        <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
+          <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
+            📍 LOCATION & TIME
+          </div>
+          <div class="form-group">
+            <label for="city">City Name</label>
+            <input type="text" id="city" name="city" placeholder="e.g. London, Toronto">
+          </div>
+          <div class="form-group">
+            <label for="timezone">Timezone</label>
+            <select id="timezone" name="timezone">
+              <option value="0">UTC (+0)</option>
+              <option value="1">London (+0/+1)</option>
+              <option value="2">Paris (+1/+2)</option>
+              <option value="3">Helsinki (+2/+3)</option>
+              <option value="4">Moscow (+3)</option>
+              <option value="5">Tokyo (+9)</option>
+              <option value="6">Sydney (+10/+11)</option>
+              <option value="7">Auckland (+12/+13)</option>
+              <option value="8">Hawaii (-10)</option>
+              <option value="9">Alaska (-9/-8)</option>
+              <option value="10" selected>Pacific (-8/-7)</option>
+              <option value="11">Mountain (-7/-6)</option>
+              <option value="12">Central (-6/-5)</option>
+              <option value="13">Eastern (-5/-4)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ⚙️ PREFERENCES -->
+        <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
+          <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
+            ⚙️ PREFERENCES
+          </div>
+          <div class="form-group">
+            <label for="currency">Currency</label>
+            <select id="currency" name="currency">
+              <option value="USD" selected>🇺🇸 USD</option>
+              <option value="CAD">🇨🇦 CAD</option>
+              <option value="EUR">🇪🇺 EUR</option>
+              <option value="GBP">🇬🇧 GBP</option>
+              <option value="JPY">🇯🇵 JPY</option>
+              <option value="AUD">🇦🇺 AUD</option>
+              <option value="CHF">🇨🇭 CHF</option>
+              <option value="CNY">🇨🇳 CNY</option>
+              <option value="SEK">🇸🇪 SEK</option>
+              <option value="NOK">🇳🇴 NOK</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="tempunit">Temperature</label>
+            <select id="tempunit" name="tempunit">
+              <option value="F" selected>Fahrenheit (°F)</option>
+              <option value="C">Celsius (°C)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 💡 BRIGHTNESS CONTROL -->
+        <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
+          <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
+            💡 DISPLAY BRIGHTNESS
+          </div>
+          <div class="form-group">
+            <label for="brightness">Level: <span id="brightnessValue">128</span></label>
+            <input type="range" id="brightness" name="brightness" min="50" max="255" value="128" style="flex: 2;">
+          </div>
+        </div>
+
+        <!-- 🔄 FIRMWARE UPDATES (OTA) -->
+        <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
+          <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
+            🔄 FIRMWARE UPDATES
+          </div>
+          <div style="color: #888; font-size: 0.9rem; margin-bottom: 15px; text-align: center;">
+            Current Version: <span style="color: #fca420;">v1.0.9</span>
+          </div>
+          <button class="button" onclick="checkForUpdates()" style="margin-top: 0; background: linear-gradient(145deg, #555, #888);">
+            🔍 CHECK FOR UPDATES
+          </button>
+          <div id="updateStatus" style="margin-top: 15px; font-size: 0.85rem; color: #888;"></div>
+          <button id="installUpdateBtn" class="button" onclick="installUpdate()" style="margin-top: 10px; display: none; background: linear-gradient(145deg, #5cb85c, #4cae4c);">
+            📥 INSTALL UPDATE
+          </button>
+        </div>
+      </div>
+
+      <!-- ⚡ RIGHT COLUMN: Personalization -->
+      <div class="form-column">
+        <div class="column-title">⚡ PERSONALIZATION</div>
+        
+        <!-- 🆔 DEVICE IDENTIFICATION -->
+        <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
+          <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
+            🆔 DEVICE IDENTIFICATION
+          </div>
+          <div style="color: #888; font-size: 0.9rem; margin-bottom: 15px; text-align: center;">
+            Device MAC ID: <span id="deviceMacId" style="color: #fca420; font-weight: bold;">Loading...</span>
+          </div>
+          <div class="form-group">
+            <label for="devicename">Device Name</label>
+            <input type="text" id="devicename" name="devicename" placeholder="e.g. Living Room, Office" maxlength="20">
+          </div>
+          <div style="color: #666; font-size: 0.75rem; margin-top: 10px; text-align: center;">
+            💡 Helpful for households with multiple STACKSWORTH devices!
+          </div>
+          <button class="button" onclick="identifyDevice()" style="margin-top: 15px; background: linear-gradient(145deg, #555, #888);">
+            🔍 IDENTIFY THIS DEVICE
+          </button>
+          <div style="color: #666; font-size: 0.75rem; margin-top: 10px; text-align: center;">
+            (Display will flash/blink to identify this unit)
+          </div>
+        </div>
+
+        <!-- 📊 DISPLAY METRICS -->
+        <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
+          <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
+            📊 DISPLAY METRICS
+          </div>
+          <div style="color: #888; font-size: 0.85rem; margin-bottom: 15px; text-align: center;">
+            Select which data to display on your CORE:
+          </div>
+          
+          <div style="display: grid; grid-template-columns: 1fr; gap: 8px; font-size: 0.9rem;">
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>📦 Block Height</span>
+              <input type="checkbox" id="show0" checked style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>⛏️ Miner Name</span>
+              <input type="checkbox" id="show1" checked style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>💰 Price</span>
+              <input type="checkbox" id="show3" checked style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>📈 24H Change</span>
+              <input type="checkbox" id="show2" style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>⚡ Fee Rate</span>
+              <input type="checkbox" id="show8" checked style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>🏦 Market Cap</span>
+              <input type="checkbox" id="show4" style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>💎 Sats/USD</span>
+              <input type="checkbox" id="show5" style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>🪙 Circulating Supply</span>
+              <input type="checkbox" id="show6" style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>⏰ Time/City</span>
+              <input type="checkbox" id="show10" checked style="width: auto; margin: 0;">
+            </label>
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <span>📅 Date/Day</span>
+              <input type="checkbox" id="show11" checked style="width: auto; margin: 0;">
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button class="button" onclick="saveAndReboot()" style="margin-top: 30px;">SAVE AND REBOOT</button>
+    <div class="version" style="margin-top: 15px;">
+      v1.0.9 – 2026
+      <div style="margin-top: 8px; font-size: 0.8rem; color: #888;">
+        Built by <a href="https://bitcoinmanor.com" target="_blank" style="color: #fca420; text-decoration: none;">BitcoinManor.com</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 📝 Bitcoin Wisdom - Full Width -->
+  <div style="margin: 20px 0; padding: 15px; border: 1px solid #333; border-radius: 8px; background: rgba(255, 255, 255, 0.02); max-width: 1000px; width: 95%;">
+    <div style="color: #fca420; font-weight: bold; margin-bottom: 10px; text-align: center;">
+      💭 BITCOIN WISDOM
+    </div>
+    <div id="btcQuote" style="color: #ccc; font-size: 0.8rem; font-style: italic; line-height: 1.3; text-align: center;">
+      Loading wisdom...
+    </div>
+  </div>
+
+  <div id="popup" class="popup">
+    <div style="text-align: right;">
+      <button onclick="hidePopup()" style="background:none; border:none; color:#fca420; font-size:1.2rem; cursor:pointer;">❌</button>
+    </div>
+    <p>✅ Settings saved. Rebooting now...</p>
+    <p>If your browser shows an error, you can ignore and close it.</p>
+    <p>You can now close this WiFi Setup screen.</p>
+  </div>
+
+  <script>
+  // 🎮 Konami Code Easter Egg
+  let konamiCode = [];
+  const konamiSequence = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
+  
+  // 📈 Bitcoin Data & Easter Eggs
+  const satoshiQuotes = [
+    '"Being open source means anyone can independently review the code." - Satoshi',
+    '"The nature of Bitcoin is such that once version 0.1 was released, the core design was set in stone." - Satoshi',
+    '"I\'ve been working on a new electronic cash system that\'s fully peer-to-peer." - Satoshi',
+    '"If you don\'t believe it or don\'t get it, I don\'t have time to try to convince you." - Satoshi',
+    '"The root problem with conventional currency is all the trust that\'s required." - Satoshi',
+    '"Bitcoin: A purely peer-to-peer version of electronic cash." - Satoshi',
+    '"Running Bitcoin" - Hal Finney, January 11, 2009',
+    '"I\'m pretty excited about this new Bitcoin system." - Hal Finney',
+    '"I thought I was dealing with a young man of Japanese ancestry." - Hal Finney on Satoshi',
+    '"Bitcoin seems to be a very promising idea." - Hal Finney',
+    'Bitcoin Genesis Block: January 3, 2009',
+    'First Bitcoin transaction: Hal Finney received 10 BTC from Satoshi',
+    'Bitcoin Pizza Day: May 22, 2010 - 10,000 BTC for 2 pizzas',
+    'Bitcoin halving occurs approximately every 4 years'
+  ];
+
+  let currentQuoteIndex = 0;
+  let konamiActivated = false;
+  
+  // 🔍 Load device info on page load
+  function loadDeviceInfo() {
+    fetch('/deviceinfo')
+      .then(response => response.json())
+      .then(data => {
+        if (data.macid) {
+          document.getElementById('deviceMacId').textContent = data.macid;
+        }
+      })
+      .catch(error => {
+        console.error('Error loading device info:', error);
+        document.getElementById('deviceMacId').textContent = 'Error';
+      });
+  }
+  
+  // 🔍 Identify device - blink display
+  function identifyDevice() {
+    const identifyBtn = event.target;
+    const originalText = identifyBtn.innerHTML;
+    identifyBtn.innerHTML = '⏳ Identifying...';
+    identifyBtn.disabled = true;
+    
+    fetch('/identify')
+      .then(response => {
+        if (response.ok) {
+          identifyBtn.innerHTML = '✅ Device Identified!';
+          setTimeout(() => {
+            identifyBtn.innerHTML = originalText;
+            identifyBtn.disabled = false;
+          }, 3000);
+        } else {
+          identifyBtn.innerHTML = '❌ Failed';
+          setTimeout(() => {
+            identifyBtn.innerHTML = originalText;
+            identifyBtn.disabled = false;
+          }, 2000);
+        }
+      })
+      .catch(error => {
+        console.error('Identify error:', error);
+        identifyBtn.innerHTML = originalText;
+        identifyBtn.disabled = false;
+      });
+  }
+  
+  // 💡 BRIGHTNESS SLIDER LIVE UPDATE
+  function initBrightnessSlider() {
+    const brightnessSlider = document.getElementById("brightness");
+    const brightnessValue = document.getElementById("brightnessValue");
+    
+    if (brightnessSlider) {
+      brightnessSlider.addEventListener("input", () => {
+        brightnessValue.textContent = brightnessSlider.value;
+      });
+    }
+  }
+
+  // 🔄 OTA UPDATE FUNCTIONS
+  function checkForUpdates() {
+    const statusDiv = document.getElementById('updateStatus');
+    const installBtn = document.getElementById('installUpdateBtn');
+    const checkBtn = event.target;
+    
+    checkBtn.disabled = true;
+    checkBtn.innerHTML = '⏳ Checking...';
+    statusDiv.innerHTML = 'Contacting update server...';
+    statusDiv.style.color = '#888';
+    installBtn.style.display = 'none';
+    
+    fetch('/checkupdate')
+      .then(response => response.json())
+      .then(data => {
+        if (data.updateAvailable) {
+          statusDiv.innerHTML = `🎉 New version available: ${data.latestVersion}`;
+          statusDiv.style.color = '#5cb85c';
+          installBtn.style.display = 'block';
+        } else {
+          statusDiv.innerHTML = '✅ You have the latest version!';
+          statusDiv.style.color = '#5cb85c';
+        }
+        checkBtn.disabled = false;
+        checkBtn.innerHTML = '🔍 CHECK FOR UPDATES';
+      })
+      .catch(error => {
+        statusDiv.innerHTML = '❌ Update check failed. Please try again.';
+        statusDiv.style.color = '#d9534f';
+        checkBtn.disabled = false;
+        checkBtn.innerHTML = '🔍 CHECK FOR UPDATES';
+      });
+  }
+  
+  function installUpdate() {
+    const statusDiv = document.getElementById('updateStatus');
+    const installBtn = document.getElementById('installUpdateBtn');
+    const checkBtn = document.querySelector('button[onclick="checkForUpdates()"]');
+    
+    installBtn.disabled = true;
+    checkBtn.disabled = true;
+    installBtn.innerHTML = '⏳ Installing...';
+    statusDiv.innerHTML = '📥 Downloading firmware...<br>Please wait, device will reboot automatically';
+    statusDiv.style.color = '#fca420';
+    
+    fetch('/doupdate')
+      .then(response => {
+        if (response.ok) {
+          statusDiv.innerHTML = '✅ Update successful! Device is rebooting...';
+          statusDiv.style.color = '#5cb85c';
+        }
+      })
+      .catch(error => {
+        console.warn("Update started - connection may drop during reboot");
+        statusDiv.innerHTML = '✅ Update in progress... Device will reboot';
+        statusDiv.style.color = '#5cb85c';
+      });
+  }
+
+  function saveAndReboot() {
+    const saveBtn = event.target;
+    saveBtn.classList.add('clicked');
+    
+    const form = new FormData();
+    form.append("ssid", document.getElementById("ssid").value);
+    form.append("password", document.getElementById("password").value);
+    form.append("city", document.getElementById("city").value);
+    form.append("timezone", document.getElementById("timezone").value);
+    form.append("currency", document.getElementById("currency").value);
+    form.append("tempunit", document.getElementById("tempunit").value);
+    form.append("devicename", document.getElementById("devicename").value);
+    form.append("brightness", document.getElementById("brightness").value);
+    
+    // Add all display option checkboxes
+    for (let i = 0; i < 12; i++) {
+      const checkbox = document.getElementById("show" + i);
+      if (checkbox) {
+        form.append("show" + i, checkbox.checked ? "1" : "0");
+      }
+    }
+
+    fetch("/save", {
+      method: "POST",
+      body: form
+    })
+    .then(response => {
+      if (response.ok) {
+        showPopup();
+      } else {
+        alert("⚠️ Save failed. Please try again.");
+      }
+    })
+    .catch(error => {
+      console.warn("⚠️ Connection dropped — likely rebooting. Showing popup anyway.");
+      console.error("Error:", error);
+      showPopup();
+    });
+  }
+
+  function showPopup() {
+    const popup = document.getElementById("popup");
+    popup.style.display = "block";
+    setTimeout(() => { popup.style.opacity = "1"; }, 10);
+  }
+
+  function hidePopup() {
+    const popup = document.getElementById("popup");
+    popup.style.opacity = "0";
+    setTimeout(() => { popup.style.display = "none"; }, 500);
+  }
+
+  function togglePassword() {
+    const passwordInput = document.getElementById('password');
+    const toggleButton = document.getElementById('pwToggle');
+    
+    if (passwordInput.type === 'password') {
+      passwordInput.type = 'text';
+      toggleButton.innerHTML = '🙈';
+      toggleButton.setAttribute('aria-label', 'Hide password');
+    } else {
+      passwordInput.type = 'password';
+      toggleButton.innerHTML = '👁';
+      toggleButton.setAttribute('aria-label', 'Show password');
+    }
+  }
+
+  // 🎮 Bitcoin Rain Easter Egg (Konami Code)
+  function startBitcoinRain() {
+    if (konamiActivated) return;
+    konamiActivated = true;
+    
+    const rainContainer = document.createElement('div');
+    rainContainer.className = 'bitcoin-rain';
+    document.body.appendChild(rainContainer);
+
+    const symbols = ['₿', '🪙', '💰', '💸', '💵', '💴', '💶', '💷', '₿', '🪙', '💰', '💸', '₿'];
+    
+    for (let i = 0; i < 21; i++) {
+      setTimeout(() => {
+        const symbol = document.createElement('div');
+        symbol.className = 'bitcoin-symbol';
+        symbol.textContent = symbols[Math.floor(Math.random() * symbols.length)];
+        symbol.style.left = Math.random() * 100 + '%';
+        symbol.style.animationDelay = Math.random() * 2 + 's';
+        rainContainer.appendChild(symbol);
+      }, i * 200);
+    }
+
+    setTimeout(() => {
+      if (rainContainer.parentNode) {
+        rainContainer.parentNode.removeChild(rainContainer);
+      }
+      konamiActivated = false;
+    }, 8000);
+  }
+
+  // 🧠 Rotate Satoshi quotes
+  function rotateSatoshiQuote() {
+    document.getElementById('btcQuote').textContent = satoshiQuotes[currentQuoteIndex];
+    currentQuoteIndex = (currentQuoteIndex + 1) % satoshiQuotes.length;
+  }
+
+  // 🎮 Konami Code listener
+  document.addEventListener('keydown', function(event) {
+    konamiCode.push(event.code);
+    if (konamiCode.length > konamiSequence.length) {
+      konamiCode.shift();
+    }
+    
+    if (konamiCode.length === konamiSequence.length && 
+        konamiCode.every((code, index) => code === konamiSequence[index])) {
+      startBitcoinRain();
+      konamiCode = [];
+    }
+  });
+
+  // 🚀 Initialize on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    try {
+      loadDeviceInfo();
+      initBrightnessSlider();
+      rotateSatoshiQuote();
+      setInterval(rotateSatoshiQuote, 10000);
+      
+      console.log('🎮 Try the Konami Code: ↑↑↓↓←→←→BA');
+      console.log('🚀 STACKSWORTH CORE v1.0.9 - Built by Bitcoin Manor');
+      console.log('⚡ Bitcoin TFT Display with live data updates!');
+    } catch (error) {
+      console.log('🔧 Portal initialized in minimal mode');
+    }
+  });
+  </script>
+</body>
+</html>
