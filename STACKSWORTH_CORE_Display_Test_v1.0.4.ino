@@ -1,5 +1,4 @@
-//STACKSWORTH_CORE_v1.0.3
-
+//STACKSWORTH_COREv1.0.4
 
 #include <LovyanGFX.hpp>
 
@@ -164,37 +163,37 @@ void setup()
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
 
-  // BLOCK (moved up)
-  tft.setCursor(245, 35);
+  // BLOCK (moved up closer to top)
+  tft.setCursor(245, 38);
   tft.print("BLOCK");
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(245, 55);
+  tft.setCursor(245, 58);
   tft.print("842471");
 
-  // MINER (centered between BLOCK and FEE)
+  // MINER (more space below BLOCK)
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(245, 80);
+  tft.setCursor(245, 93);
   tft.print("MINER");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
-  tft.setCursor(245, 100);
+  tft.setCursor(245, 113);
   tft.print("FoundryUSA");
 
-  // FEE
+  // FEE (more space below MINER)
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
-  tft.setCursor(245, 120);
+  tft.setCursor(245, 133);
   tft.print("FEE");
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(245, 140);
+  tft.setCursor(245, 153);
   tft.print("23");
   tft.setTextSize(1);
-  tft.setCursor(270, 144);
+  tft.setCursor(270, 157);
   tft.print("sat/vB");
 
   // Bottom data bar - 4 sections with orange border (closer to footer)
-  int barY = 180;
-  int barHeight = 40;
+  int barY = 175;
+  int barHeight = 48;
   int section1Width = 91;
   int section2Width = 91;
   int section3Width = 91;
@@ -214,34 +213,39 @@ void setup()
   tft.setCursor(5, barY + 5);
   tft.print("MARKET CAP");
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(5, barY + 20);
+  tft.setTextSize(2);
+  tft.setCursor(5, barY + 22);
   tft.print("$1.32T");
 
   // Section 2: SATS/USD
   tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(1);
   tft.setCursor(section1Width + 5, barY + 5);
   tft.print("SATS/USD");
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(section1Width + 5, barY + 20);
+  tft.setTextSize(2);
+  tft.setCursor(section1Width + 5, barY + 22);
   tft.print("1473");
 
   // Section 3: SUPPLY
   tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(1);
   tft.setCursor(section1Width + section2Width + 5, barY + 5);
   tft.print("SUPPLY");
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(section1Width + section2Width + 5, barY + 20);
+  tft.setTextSize(2);
+  tft.setCursor(section1Width + section2Width + 5, barY + 22);
   tft.print("19.8M");
 
   // Section 4: LIVE indicator (smaller box)
   int liveX = section1Width + section2Width + section3Width;
   tft.setTextColor(TFT_CYAN);  // Cyan when connected, will be red when not
   tft.setTextSize(1);
-  tft.setCursor(liveX + 8, barY + 15);
+  tft.setCursor(liveX + 8, barY + 5);
   tft.print("LIVE");
   
-  // Draw cyan pulse circle
-  tft.fillCircle(liveX + 24, barY + 28, 4, TFT_CYAN);
+  // Draw cyan pulse circle (more space below text)
+  tft.fillCircle(liveX + 24, barY + 32, 5, TFT_CYAN);
 
   // Footer
   tft.setTextColor(0x528A);  // Dim gray
