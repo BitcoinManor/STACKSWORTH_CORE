@@ -1,4 +1,4 @@
-//STACKSWORTH_COREv1.0.4
+//STAKSWORTH_COREv1.0.5
 
 #include <LovyanGFX.hpp>
 
@@ -190,6 +190,12 @@ void setup()
   tft.setTextSize(1);
   tft.setCursor(270, 157);
   tft.print("sat/vB");
+
+  // Date and Time display (between cyan border and orange bottom bar)
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(1);
+  tft.setCursor(20, 155);
+  tft.print("Monday, May 5, 2026  8:42:15 PM");
 
   // Bottom data bar - 4 sections with orange border (closer to footer)
   int barY = 175;
