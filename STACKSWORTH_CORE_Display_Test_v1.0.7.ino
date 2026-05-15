@@ -1,6 +1,10 @@
-//STACKSWORTH_COREv1.0.6
+//STACKSWORTH_CORE_v1.0.7
+//May 6,2026
 
 #include <LovyanGFX.hpp>
+#include <WiFi.h>
+#include <ESPmDNS.h>
+
 
 class LGFX : public lgfx::LGFX_Device
 {
@@ -75,10 +79,61 @@ public:
 
 LGFX tft;
 
+const char* ssid = "SM-S918W0853";
+const char* password = "MySamsungPhone!!!";
+
+bool wifiConnected = false;
+
+void connectWiFi()
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to WiFi");
+
+  unsigned long startAttempt = millis();
+
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 20000)
+  {
+    Serial.print(".");
+    delay(500);
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    wifiConnected = true;
+
+    Serial.println();
+    Serial.println("WiFi connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+
+    if (MDNS.begin("core"))
+    {
+      Serial.println("mDNS started: http://core.local");
+      MDNS.addService("http", "tcp", 80);
+    }
+    else
+    {
+      Serial.println("mDNS failed");
+    }
+  }
+  else
+  {
+    wifiConnected = false;
+    Serial.println();
+    Serial.println("WiFi connection failed");
+  }
+}
+
+//SETUP
+
 void setup()
 {
   Serial.begin(115200);
   Serial.println("Starting CYD Display Test...");
+
+  connectWiFi();
   
   tft.init();
   Serial.println("Display initialized");
