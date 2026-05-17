@@ -31,9 +31,11 @@ Built on an affordable 2.8" display platform, CORE serves as the perfect entry p
 
 ## 📦 Versions
 
-- **Acrylic Edition** – Includes stock top and bottom plates  
-- **Walnut Edition** – CNC-cut premium hardwood  
-- **Maple Edition** – CNC-cut light hardwood  
+- **3D Printed  Edition**
+- CNC-Milled Premium Wood Case  
+- **Dark Walnut Edition**  
+- **African Mahogany Edition**
+- **Purple Heart Edition**
 
 ---
 
