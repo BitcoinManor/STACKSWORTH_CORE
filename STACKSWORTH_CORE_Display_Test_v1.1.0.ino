@@ -706,7 +706,7 @@ void startAccessPoint() {
   
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(2);
-  tft.setCursor(40, 150);
+  tft.setCursor(60, 150);
   tft.print(apSSID);
   
   tft.setTextColor(TFT_WHITE);
@@ -807,9 +807,11 @@ void connectWiFi()
 
 // Initialize web server routes
 void setupWebServer() {
-  // Serve main portal page
+  // Serve main portal page (compressed)
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/core.html.gz", "text/html", false);
+    AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/core.html.gz", "text/html");
+    response->addHeader("Content-Encoding", "gzip");
+    request->send(response);
   });
   
   // Device info endpoint
@@ -926,7 +928,9 @@ void setupWebServer() {
   server.onNotFound([](AsyncWebServerRequest *request) {
     if (apMode) {
       // In AP mode, redirect everything to the portal
-      request->send(SPIFFS, "/core.html.gz", "text/html", false);
+      AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/core.html.gz", "text/html");
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
     } else {
       request->send(404, "text/plain", "Not found");
     }
