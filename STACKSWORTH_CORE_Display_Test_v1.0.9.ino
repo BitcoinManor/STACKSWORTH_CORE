@@ -659,29 +659,73 @@ void startAccessPoint() {
   
   // Show AP mode message on display
   tft.fillScreen(TFT_BLACK);
+  
+  // Draw hexagon logo at top center
+  int logoHexX = 160;  // Center of screen (320/2)
+  int logoHexY = 30;
+  int logoHexSize = 18;
+  
+  // Draw hexagon
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+    tft.drawLine(x1+1, y1+1, x2+1, y2+1, TFT_ORANGE); // Thicker lines
+  }
+  
+  // Draw S inside hexagon
   tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(3);
+  tft.setCursor(logoHexX - 9, logoHexY - 12);
+  tft.print("S");
+  
+  // STACKSWORTH CORE below logo
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(40, 80);
+  tft.setCursor(50, 60);
+  tft.print("STACKSWORTH");
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(185, 60);
+  tft.print("CORE");
+  
+  // SETUP MODE heading
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(3);
+  tft.setCursor(60, 90);
   tft.print("SETUP MODE");
   
+  // Instructions
   tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(1);
-  tft.setCursor(30, 110);
+  tft.setTextSize(2);
+  tft.setCursor(20, 125);
   tft.print("Connect to WiFi:");
   
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(2);
-  tft.setCursor(20, 130);
+  tft.setCursor(40, 150);
   tft.print(apSSID);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
-  tft.setCursor(30, 160);
-  tft.print("Then visit:");
+  tft.setCursor(25, 180);
+  tft.print("Portal will auto-open.");
+  tft.setCursor(25, 193);
+  tft.print("If not, please visit:");
   
-  tft.setTextColor(TFT_CYAN);
-  tft.setCursor(30, 175);
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(65, 208);
   tft.print(myIP.toString());
+  
+  // Footer
+  tft.setTextColor(0x528A);  // Dim gray
+  tft.setTextSize(1);
+  tft.setCursor(50, 228);
+  tft.print("Built by Bitcoin Manor 2026");
 }
 
 void connectWiFi()
@@ -991,6 +1035,25 @@ void setup()
   tft.setTextColor(TFT_ORANGE);
   tft.setCursor(240, splashY + 18);
   tft.print("CORE");
+  
+  delay(1500);  // Show splash for 1.5 seconds
+  
+  // Show "CHECKING HARDWARE" loading screen
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(30, 100);
+  tft.print("CHECKING HARDWARE");
+  
+  // Animated loading dots
+  tft.setTextColor(TFT_CYAN);
+  for (int i = 0; i < 3; i++) {
+    tft.setCursor(95 + (i * 40), 130);
+    tft.print(".");
+    delay(300);
+  }
+  
+  delay(500);
   
   // 🌐 Smart WiFi Connection Logic (matches MATRIX behavior)
   if (savedSSID.length() > 0) {
