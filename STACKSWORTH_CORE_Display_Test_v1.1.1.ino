@@ -125,7 +125,7 @@ String savedCurrency = "USD";
 String savedTempUnit = "F";
 String savedDeviceName = "";
 uint8_t savedBrightness = 128;
-int savedTimezone = 10;  // Default Pacific
+int savedTimezone = -8;  // Default Pacific (UTC-8)
 bool displayEnabled[12] = {true, true, false, true, false, false, false, false, true, false, true, true}; // Default metrics
 
 // 🔄 Fetch Intervals (milliseconds) - Prioritized for importance
@@ -636,43 +636,67 @@ void updateBlockHeightDisplay() {
   }
 }
 
-// Update miner name display (more vertical space now)
+// Update miner name display (larger size, two-line support)
 void updateMinerDisplay() {
-  // Clear miner area
-  tft.fillRect(245, 130, 70, 10, TFT_BLACK);
+  // Clear miner area (larger now for size 2 text on two lines)
+  tft.fillRect(245, 108, 70, 32, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(1);
-  tft.setCursor(245, 130);
+  tft.setTextSize(2);
   
   if (displayEnabled[3]) {
-    // Truncate miner name if too long
-    String displayMiner = minerName;
-    if (displayMiner.length() > 10) {
-      displayMiner = displayMiner.substring(0, 10);
+    // Check if miner name has a space (two words)
+    int spaceIndex = minerName.indexOf(' ');
+    
+    if (spaceIndex > 0 && spaceIndex < minerName.length() - 1) {
+      // Two-word name - split into two lines
+      String word1 = minerName.substring(0, spaceIndex);
+      String word2 = minerName.substring(spaceIndex + 1);
+      
+      // Truncate if too long
+      if (word1.length() > 6) word1 = word1.substring(0, 6);
+      if (word2.length() > 6) word2 = word2.substring(0, 6);
+      
+      tft.setCursor(245, 108);
+      tft.print(word1);
+      tft.setCursor(245, 124);
+      tft.print(word2);
+      
+      Serial.println("⛏️ Updated miner: " + word1 + " " + word2);
+    } else {
+      // Single word - truncate if needed
+      String displayMiner = minerName;
+      if (displayMiner.length() > 6) {
+        displayMiner = displayMiner.substring(0, 6);
+      }
+      tft.setCursor(245, 108);
+      tft.print(displayMiner);
+      Serial.println("⛏️ Updated miner: " + displayMiner);
     }
-    tft.print(displayMiner);
-    Serial.println("⛏️ Updated miner: " + displayMiner);
   } else {
+    tft.setCursor(245, 108);
     tft.print("---");
     Serial.println("⛏️ Miner display hidden");
   }
 }
 
-// Update fee rate display (now on bottom bar)
+// Update fee rate display (now on bottom bar - narrower section)
 void updateFeeDisplay() {
   int barY = 175;
-  int section1Width = 106;  // Wider sections now (3 sections total)
+  int section1Width = 142;
   
   // Clear fee area on bottom bar
-  tft.fillRect(section1Width + 5, barY + 22, 80, 20, TFT_BLACK);
+  tft.fillRect(section1Width + 5, barY + 24, 95, 20, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(section1Width + 5, barY + 22);
+  tft.setCursor(section1Width + 5, barY + 24);
   
   if (displayEnabled[11]) {
     tft.print(String(feeRate));
+    tft.setTextSize(1);
+    tft.setCursor(section1Width + 25, barY + 28);
+    tft.print("sat/vB");
     Serial.println("⚡ Updated fee: " + String(feeRate) + " sat/vB");
   } else {
     tft.print("--");
@@ -685,11 +709,11 @@ void updateSatsPerDollarDisplay() {
   int barY = 175;
   
   // Clear sats/USD area
-  tft.fillRect(5, barY + 22, 90, 20, TFT_BLACK);
+  tft.fillRect(5, barY + 24, 130, 20, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(5, barY + 22);
+  tft.setCursor(5, barY + 24);
   
   if (displayEnabled[0]) {  // Tied to price
     tft.print(String(satsPerDollar));
@@ -745,30 +769,30 @@ void updateDateTimeDisplay() {
 
 void updateLiveIndicator()
 {
-  // Bottom data bar position - now 3 sections
+  // Bottom data bar position - LIVE section is wider now for text
   int barY = 175;
-  int section1Width = 106;
-  int section2Width = 106;
+  int section1Width = 142;
+  int section2Width = 110;
   int liveX = section1Width + section2Width;
   
-  // Clear the LIVE indicator area
-  tft.fillRect(liveX + 1, barY + 1, 106, 46, TFT_BLACK);
+  // Clear the LIVE indicator area (now 68px wide)
+  tft.fillRect(liveX + 1, barY + 1, 66, 46, TFT_BLACK);
   
   if (wifiConnected)
   {
     tft.setTextColor(TFT_CYAN);
     tft.setTextSize(1);
-    tft.setCursor(liveX + 38, barY + 5);
+    tft.setCursor(liveX + 20, barY + 15);
     tft.print("LIVE");
-    tft.fillCircle(liveX + 54, barY + 32, 5, TFT_CYAN);
+    tft.fillCircle(liveX + 34, barY + 32, 5, TFT_CYAN);
   }
   else
   {
     tft.setTextColor(TFT_RED);
     tft.setTextSize(1);
-    tft.setCursor(liveX + 32, barY + 5);
+    tft.setCursor(liveX + 10, barY + 15);
     tft.print("OFFLINE");
-    tft.fillCircle(liveX + 54, barY + 32, 5, TFT_RED);
+    tft.fillCircle(liveX + 34, barY + 32, 5, TFT_RED);
   }
 }
 
@@ -1111,7 +1135,7 @@ void loadSavedSettings() {
   savedSSID = prefs.getString("ssid", "");
   savedPassword = prefs.getString("password", "");
   savedCity = prefs.getString("city", "");
-  savedTimezone = prefs.getInt("timezone", 10);  // Default Pacific
+  savedTimezone = prefs.getInt("timezone", -8);  // Default Pacific (UTC-8)
   savedCurrency = prefs.getString("currency", "USD");
   savedTempUnit = prefs.getString("tempunit", "F");
   savedDeviceName = prefs.getString("devicename", "");
@@ -1280,14 +1304,14 @@ void setup()
   tft.setCursor(logoHexX - 6, logoHexY - 8);
   tft.print("S");
 
-  // Header: STACKSWORTH CORE
+  // Header: STACKSWORTH CORE (centered more)
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(45, 8);
+  tft.setCursor(65, 8);
   tft.print("STACKSWORTH");
   
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(185, 8);
+  tft.setCursor(205, 8);
   tft.print("CORE");
 
   // Main price card (moved up closer to header)
@@ -1328,14 +1352,16 @@ void setup()
   tft.setCursor(245, 70);
   tft.print("842471");
 
-  // MINER (more space below BLOCK)
+  // MINER (moved closer to BLOCK)
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(245, 110);
+  tft.setCursor(245, 90);
   tft.print("MINER");
   tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(1);
-  tft.setCursor(245, 130);
-  tft.print("FoundryUSA");
+  tft.setTextSize(2);  // Larger miner name
+  tft.setCursor(245, 108);
+  tft.print("Foundry");
+  tft.setCursor(245, 124);  // Second line for two-word names
+  tft.print("USA");
 
   // Date and Time display (between cyan border and orange bottom bar)
   // Will be updated by NTP sync
@@ -1347,9 +1373,9 @@ void setup()
   // Bottom data bar - 3 sections with orange border (SATS/USD | FEE | LIVE)
   int barY = 175;
   int barHeight = 48;
-  int section1Width = 106;  // Wider sections now
-  int section2Width = 106;
-  int section3Width = 108;  // Slightly wider for LIVE
+  int section1Width = 142;  // SATS/USD
+  int section2Width = 110;  // FEE (narrower)
+  int section3Width = 68;   // LIVE (wider for text)
   
   // Draw orange border rectangle
   tft.drawRect(0, barY, 320, barHeight, TFT_ORANGE);
@@ -1360,28 +1386,28 @@ void setup()
 
   // Section 1: SATS/USD
   tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(1);
+  tft.setTextSize(2);  // Larger labels
   tft.setCursor(5, barY + 5);
   tft.print("SATS/USD");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(5, barY + 22);
+  tft.setCursor(5, barY + 24);
   tft.print("1473");
 
-  // Section 2: FEE (moved from right side)
+  // Section 2: FEE (narrower now)
   tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(1);
+  tft.setTextSize(2);  // Larger labels
   tft.setCursor(section1Width + 5, barY + 5);
   tft.print("FEE");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(section1Width + 5, barY + 22);
+  tft.setCursor(section1Width + 5, barY + 24);
   tft.print("23");
   tft.setTextSize(1);
-  tft.setCursor(section1Width + 30, barY + 26);
+  tft.setCursor(section1Width + 25, barY + 28);
   tft.print("sat/vB");
 
-  // Section 3: LIVE indicator - show WiFi status
+  // Section 3: LIVE indicator - show WiFi status (wider with text)
   int liveX = section1Width + section2Width;
   
   // Initial indicator (will update dynamically in loop)
