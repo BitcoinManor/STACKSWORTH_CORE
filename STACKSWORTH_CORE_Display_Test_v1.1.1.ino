@@ -199,6 +199,31 @@ bool initialSetupDone = false;
 unsigned long lastWiFiCheck = 0;
 const unsigned long wifiCheckInterval = 5000; // Check every 5 seconds
 
+// 🕐 DST Detection Function (North American rules)
+// DST starts: Second Sunday in March at 2:00 AM
+// DST ends: First Sunday in November at 2:00 AM
+bool isDST(int month, int day, int dayOfWeek) {
+  // No DST in Jan, Feb, Dec
+  if (month < 3 || month > 11) return false;
+  // DST always active Apr-Oct
+  if (month > 3 && month < 11) return true;
+  
+  // Calculate for March and November
+  int previousSunday = day - dayOfWeek;
+  
+  // In March, DST starts on second Sunday (day 8-14)
+  if (month == 3) {
+    return previousSunday >= 8;
+  }
+  
+  // In November, DST ends on first Sunday (day 1-7)
+  if (month == 11) {
+    return previousSunday < 1;
+  }
+  
+  return false;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 🌐 SATONAK API FETCH FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -620,12 +645,12 @@ void updateChange24hDisplay() {
 
 // Update block height display (more vertical space now)
 void updateBlockHeightDisplay() {
-  // Clear block area
-  tft.fillRect(245, 70, 70, 20, TFT_BLACK);
+  // Clear block area (wider to prevent stray characters)
+  tft.fillRect(238, 70, 82, 20, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(245, 70);
+  tft.setCursor(238, 70);
   
   if (displayEnabled[1]) {
     tft.print(String(blockHeight));
@@ -636,13 +661,12 @@ void updateBlockHeightDisplay() {
   }
 }
 
-// Update miner name display (larger size, two-line support)
+// Update miner name display (dynamic sizing for long words)
 void updateMinerDisplay() {
-  // Clear miner area (larger now for size 2 text on two lines)
-  tft.fillRect(245, 108, 70, 32, TFT_BLACK);
+  // Clear miner area (larger and wider to prevent stray characters)
+  tft.fillRect(238, 108, 82, 36, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
   
   if (displayEnabled[3]) {
     // Check if miner name has a space (two words)
@@ -653,28 +677,42 @@ void updateMinerDisplay() {
       String word1 = minerName.substring(0, spaceIndex);
       String word2 = minerName.substring(spaceIndex + 1);
       
+      // Determine size based on original length (before truncation)
+      int word1Size = (word1.length() > 6) ? 1 : 2;
+      int word2Size = (word2.length() > 6) ? 1 : 2;
+      
       // Truncate if too long
       if (word1.length() > 6) word1 = word1.substring(0, 6);
       if (word2.length() > 6) word2 = word2.substring(0, 6);
       
-      tft.setCursor(245, 108);
+      // Print with dynamic sizing
+      tft.setTextSize(word1Size);
+      tft.setCursor(238, 108);
       tft.print(word1);
-      tft.setCursor(245, 124);
+      
+      tft.setTextSize(word2Size);
+      tft.setCursor(238, 124);
       tft.print(word2);
       
       Serial.println("⛏️ Updated miner: " + word1 + " " + word2);
     } else {
-      // Single word - truncate if needed
+      // Single word
       String displayMiner = minerName;
+      int displaySize = (displayMiner.length() > 6) ? 1 : 2;
+      
+      // Truncate if needed
       if (displayMiner.length() > 6) {
         displayMiner = displayMiner.substring(0, 6);
       }
-      tft.setCursor(245, 108);
+      
+      tft.setTextSize(displaySize);
+      tft.setCursor(238, 108);
       tft.print(displayMiner);
       Serial.println("⛏️ Updated miner: " + displayMiner);
     }
   } else {
-    tft.setCursor(245, 108);
+    tft.setTextSize(2);
+    tft.setCursor(238, 108);
     tft.print("---");
     Serial.println("⛏️ Miner display hidden");
   }
@@ -755,12 +793,15 @@ void updateDateTimeDisplay() {
   char timeStr[30];
   snprintf(timeStr, sizeof(timeStr), "%s, %s  %s", dayOfWeek, monthDay, time);
   
+  // Check DST status for logging (month is 0-11, tm_wday is 0-6 where 0=Sunday)
+  bool dstActive = isDST(timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_wday);
+  
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
   tft.setCursor(10, 150);
   tft.print(timeStr);
   
-  Serial.println("🕒 Updated time: " + String(timeStr));
+  Serial.printf("🕒 Updated time: %s (DST: %s)\n", timeStr, dstActive ? "Yes" : "No");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1282,8 +1323,8 @@ void setup()
       tft.drawLine(0, y, 320, y, 0x2104);
     }
 
-  // Draw logo - Orange hexagon with S
-  int logoHexX = 25;
+  // Draw logo - Orange hexagon with S (closer to header)
+  int logoHexX = 42;
   int logoHexY = 15;
   int logoHexSize = 12;
   
@@ -1346,22 +1387,20 @@ void setup()
   tft.setTextSize(2);
 
   // BLOCK (more vertical space now)
-  tft.setCursor(245, 50);
+  tft.setCursor(238, 50);
   tft.print("BLOCK");
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(245, 70);
+  tft.setCursor(238, 70);
   tft.print("842471");
 
   // MINER (moved closer to BLOCK)
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(245, 90);
+  tft.setCursor(238, 90);
   tft.print("MINER");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);  // Larger miner name
-  tft.setCursor(245, 108);
-  tft.print("Foundry");
-  tft.setCursor(245, 124);  // Second line for two-word names
-  tft.print("USA");
+  tft.setCursor(238, 108);
+  tft.print("ViaBTC");
 
   // Date and Time display (between cyan border and orange bottom bar)
   // Will be updated by NTP sync
@@ -1423,9 +1462,10 @@ void setup()
   if (wifiConnected) {
     Serial.println("🔄 Fetching initial Bitcoin data...");
     
-    // Configure NTP time sync
-    configTime(savedTimezone * 3600, 0, "pool.ntp.org", "time.nist.gov");
-    Serial.println("🕒 NTP time sync started");
+    // Configure NTP time sync with DST support
+    // DST offset is 3600 seconds (1 hour) - ESP32 handles it automatically
+    configTime(savedTimezone * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+    Serial.println("🕒 NTP time sync started with automatic DST");
     lastNtpSync = millis();
     
     // Show "Loading Data..." message
@@ -1559,8 +1599,8 @@ void loop()
     
     // Re-sync NTP every 30 minutes to prevent clock drift
     if (now - lastNtpSync >= INTERVAL_NTP_SYNC) {
-      configTime(savedTimezone * 3600, 0, "pool.ntp.org", "time.nist.gov");
-      Serial.println("🔄 NTP re-sync (every 30 min)");
+      configTime(savedTimezone * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+      Serial.println("🔄 NTP re-sync (every 30 min) with automatic DST");
       lastNtpSync = now;
     }
     
