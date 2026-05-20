@@ -1,5 +1,5 @@
-//STACKSWORTH_CORE_v1.1.0
-//May 17,2026
+//STACKSWORTH_CORE_v1.1.1
+//May 19,2026
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -14,6 +14,7 @@
 #include <Update.h>
 #include "esp_wifi.h"
 #include <DNSServer.h>
+#include <time.h>
 
 DNSServer dnsServer;
 
@@ -92,7 +93,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v1.1.0";
+const char* FIRMWARE_VERSION = "v1.1.1";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -100,7 +101,7 @@ const char* SATONAK_MINER = "/api/miner";
 const char* SATONAK_FEE = "/api/fee";
 const char* SATONAK_CHANGE24H = "/api/change24h";
 const char* SATONAK_MARKETCAP = "/api/marketcap";
-const char* SATONAK_SUPPLY = "/api/supply";
+const char* SATONAK_SUPPLY = "/api/circsupply";
 const char* UPDATE_URL = "https://satonak.bitcoinmanor.com/firmware/stacksworth-core.bin";
 const char* VERSION_CHECK_URL = "https://satonak.bitcoinmanor.com/api/version";
 
@@ -127,18 +128,26 @@ uint8_t savedBrightness = 128;
 int savedTimezone = 10;  // Default Pacific
 bool displayEnabled[12] = {true, true, false, true, false, false, false, false, true, false, true, true}; // Default metrics
 
-// 🔄 Fetch Intervals (milliseconds)
-const unsigned long INTERVAL_PRICE = 5UL * 60UL * 1000UL;      // 5 min
-const unsigned long INTERVAL_HEIGHT = 2UL * 60UL * 1000UL;     // 2 min
-const unsigned long INTERVAL_MINER = 6UL * 60UL * 1000UL;      // 6 min
-const unsigned long INTERVAL_FEE = 9UL * 60UL * 1000UL;        // 9 min
-const unsigned long INTERVAL_CHANGE24H = 8UL * 60UL * 1000UL;  // 8 min
+// 🔄 Fetch Intervals (milliseconds) - Prioritized for importance
+const unsigned long INTERVAL_HEIGHT = 2UL * 60UL * 1000UL;     // 2 min (PRIORITY 1: Most important)
+const unsigned long INTERVAL_MINER = 2UL * 60UL * 1000UL;      // 2 min (PRIORITY 1: Tied to block)
+const unsigned long INTERVAL_PRICE = 5UL * 60UL * 1000UL;      // 5 min (PRIORITY 2)
+const unsigned long INTERVAL_FEE = 10UL * 60UL * 1000UL;       // 10 min
+const unsigned long INTERVAL_CHANGE24H = 30UL * 60UL * 1000UL; // 30 min (rate limited)
+const unsigned long INTERVAL_MARKETCAP = 30UL * 60UL * 1000UL; // 30 min (changes slowly)
+const unsigned long INTERVAL_SUPPLY = 60UL * 60UL * 1000UL;    // 60 min (changes very slowly)
+const unsigned long INTERVAL_TIME = 60UL * 1000UL;             // 1 min (internal clock)
+const unsigned long INTERVAL_NTP_SYNC = 30UL * 60UL * 1000UL;  // 30 min (prevent drift)
 
 unsigned long lastPriceFetch = 0;
 unsigned long lastHeightFetch = 0;
 unsigned long lastMinerFetch = 0;
 unsigned long lastFeeFetch = 0;
 unsigned long lastChange24hFetch = 0;
+unsigned long lastMarketCapFetch = 0;
+unsigned long lastSupplyFetch = 0;
+unsigned long lastTimeUpdate = 0;
+unsigned long lastNtpSync = 0;
 
 // 🆔 Device MAC ID
 String macID = "";
@@ -185,9 +194,6 @@ String formatWithCommas(int number) {
   return result;
 }
 
-const char* ssid = "SM-S918W0853";
-const char* password = "MySamsungPhone!!!";
-
 bool wifiConnected = false;
 bool initialSetupDone = false;
 unsigned long lastWiFiCheck = 0;
@@ -215,19 +221,17 @@ bool fetchPriceFromSatonak() {
     String payload = http.getString();
     Serial.println("✅ Price response: " + payload);
     
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, payload);
+    // API returns raw number, not JSON
+    payload.trim();
+    btcPrice = (int)payload.toFloat();
     
-    if (!error) {
-      btcPrice = doc["price"].as<int>();
-      if (btcPrice > 0) {
-        satsPerDollar = (int)(100000000.0 / btcPrice);
-        Serial.printf("💰 Price: %s%d | Sats/$: %d\n", getCurrencySymbol().c_str(), btcPrice, satsPerDollar);
-        http.end();
-        return true;
-      }
+    if (btcPrice > 0) {
+      satsPerDollar = (int)(100000000.0 / btcPrice);
+      Serial.printf("💰 Price: %s%d | Sats/$: %d\n", getCurrencySymbol().c_str(), btcPrice, satsPerDollar);
+      http.end();
+      return true;
     } else {
-      Serial.println("❌ JSON parse error: " + String(error.c_str()));
+      Serial.println("❌ Price is 0 or invalid");
     }
   } else {
     Serial.printf("❌ HTTP error: %d\n", httpCode);
@@ -255,18 +259,16 @@ bool fetchHeightFromSatonak() {
     String payload = http.getString();
     Serial.println("✅ Height response: " + payload);
     
-    StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, payload);
+    // API returns raw number, not JSON
+    payload.trim();
+    blockHeight = payload.toInt();
     
-    if (!error) {
-      blockHeight = doc["height"].as<int>();
-      if (blockHeight > 0) {
-        Serial.printf("📦 Block Height: %d\n", blockHeight);
-        http.end();
-        return true;
-      }
+    if (blockHeight > 0) {
+      Serial.printf("📦 Block Height: %d\n", blockHeight);
+      http.end();
+      return true;
     } else {
-      Serial.println("❌ JSON parse error: " + String(error.c_str()));
+      Serial.println("❌ Block height is 0 or invalid");
     }
   } else {
     Serial.printf("❌ HTTP error: %d\n", httpCode);
@@ -294,19 +296,15 @@ bool fetchMinerFromSatonak() {
     String payload = http.getString();
     Serial.println("✅ Miner response: " + payload);
     
-    StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, payload);
-    
-    if (!error) {
-      String miner = doc["miner"].as<String>();
-      if (miner.length() > 0) {
-        minerName = miner;
-        Serial.println("⛏️ Miner: " + minerName);
-        http.end();
-        return true;
-      }
+    // API returns raw text, not JSON
+    payload.trim();
+    if (payload.length() > 0) {
+      minerName = payload;
+      Serial.println("⛏️ Miner: " + minerName);
+      http.end();
+      return true;
     } else {
-      Serial.println("❌ JSON parse error: " + String(error.c_str()));
+      Serial.println("❌ Miner name is empty");
     }
   } else {
     Serial.printf("❌ HTTP error: %d\n", httpCode);
@@ -334,18 +332,16 @@ bool fetchFeeFromSatonak() {
     String payload = http.getString();
     Serial.println("✅ Fee response: " + payload);
     
-    StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, payload);
+    // API returns raw number, not JSON
+    payload.trim();
+    feeRate = payload.toInt();
     
-    if (!error) {
-      feeRate = doc["fee"].as<int>();
-      if (feeRate > 0) {
-        Serial.printf("⚡ Fee: %d sat/vB\n", feeRate);
-        http.end();
-        return true;
-      }
+    if (feeRate > 0) {
+      Serial.printf("⚡ Fee: %d sat/vB\n", feeRate);
+      http.end();
+      return true;
     } else {
-      Serial.println("❌ JSON parse error: " + String(error.c_str()));
+      Serial.println("❌ Fee rate is 0 or invalid");
     }
   } else {
     Serial.printf("❌ HTTP error: %d\n", httpCode);
@@ -373,16 +369,113 @@ bool fetchChange24hFromSatonak() {
     String payload = http.getString();
     Serial.println("✅ Change response: " + payload);
     
-    StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, payload);
+    // Check if response is an error (JSON with "error" field)
+    if (payload.indexOf("error") >= 0) {
+      Serial.println("⚠️ API returned error (likely rate limited)");
+      http.end();
+      return false;
+    }
     
-    if (!error) {
-      btcChange24h = doc["change24h"].as<float>();
-      Serial.printf("📈 24H Change: %.2f%%\n", btcChange24h);
+    // API returns raw number when successful
+    payload.trim();
+    btcChange24h = payload.toFloat();
+    
+    Serial.printf("📈 24H Change: %.2f%%\n", btcChange24h);
+    http.end();
+    return true;
+  } else if (httpCode == 429) {
+    Serial.println("⚠️ Rate limited (429) - will retry later");
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// 💼 Fetch Market Cap from SATONAK
+bool fetchMarketCapFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_MARKETCAP) + "?fiat=" + savedCurrency;
+  
+  Serial.print("💼 Fetching market cap from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Market cap response: " + payload);
+    
+    payload.trim();
+    
+    // Check if it's an error response
+    if (payload.indexOf("error") >= 0 || payload == "na") {
+      Serial.println("⚠️ Market cap endpoint unavailable");
+      http.end();
+      return false;
+    }
+    
+    if (payload.length() > 0) {
+      marketCap = payload;
+      Serial.println("💼 Market Cap: " + marketCap);
+      http.end();
+      return true;
+    }
+  } else if (httpCode == 404) {
+    Serial.println("⚠️ Market cap endpoint not found (404) - may not be implemented");
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// 📊 Fetch Circulating Supply from SATONAK
+bool fetchSupplyFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_SUPPLY);
+  
+  Serial.print("📊 Fetching supply from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Supply response: " + payload);
+    
+    payload.trim();
+    
+    // Check if it's an error response
+    if (payload.indexOf("error") >= 0 || payload == "na") {
+      Serial.println("⚠️ Supply endpoint unavailable");
+      http.end();
+      return false;
+    }
+    
+    // Remove commas for validation
+    String cleanPayload = payload;
+    cleanPayload.replace(",", "");
+    long supplyVal = cleanPayload.toInt();
+    
+    // Sanity check: should be between 0 and 21M
+    if (supplyVal > 0 && supplyVal <= 21000000) {
+      circSupply = payload;  // Keep commas for display
+      Serial.println("📊 Supply: " + circSupply);
       http.end();
       return true;
     } else {
-      Serial.println("❌ JSON parse error: " + String(error.c_str()));
+      Serial.println("❌ Supply value out of range: " + String(supplyVal));
     }
   } else {
     Serial.printf("❌ HTTP error: %d\n", httpCode);
@@ -486,10 +579,14 @@ void updatePriceDisplay() {
   tft.setTextSize(4);
   tft.setCursor(20, 75);
   
-  String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
-  tft.print(priceStr);
-  
-  Serial.println("💰 Updated price display: " + priceStr);
+  if (displayEnabled[0]) {
+    String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
+    tft.print(priceStr);
+    Serial.println("💰 Updated price display: " + priceStr);
+  } else {
+    tft.print("---");
+    Serial.println("💰 Price display hidden");
+  }
 }
 
 // Update 24h change display
@@ -497,81 +594,149 @@ void updateChange24hDisplay() {
   // Clear change area
   tft.fillRect(20, 115, 200, 20, TFT_BLACK);
   
-  // Set color based on positive/negative
-  if (btcChange24h >= 0) {
-    tft.setTextColor(TFT_GREEN);
+  if (displayEnabled[8]) {
+    // Set color based on positive/negative
+    if (btcChange24h >= 0) {
+      tft.setTextColor(TFT_GREEN);
+    } else {
+      tft.setTextColor(TFT_RED);
+    }
+    
+    tft.setTextSize(2);
+    tft.setCursor(20, 115);
+    
+    String changeStr = (btcChange24h >= 0 ? "+" : "") + String(btcChange24h, 2) + "%";
+    tft.print(changeStr);
+    
+    Serial.println("📈 Updated change display: " + changeStr);
   } else {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(20, 115);
+    tft.print("---");
+    Serial.println("📈 24h change display hidden");
   }
-  
-  tft.setTextSize(2);
-  tft.setCursor(20, 115);
-  
-  String changeStr = (btcChange24h >= 0 ? "+" : "") + String(btcChange24h, 2) + "%";
-  tft.print(changeStr);
-  
-  Serial.println("📈 Updated change display: " + changeStr);
 }
 
-// Update block height display
+// Update block height display (more vertical space now)
 void updateBlockHeightDisplay() {
   // Clear block area
-  tft.fillRect(245, 58, 70, 20, TFT_BLACK);
+  tft.fillRect(245, 70, 70, 20, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(245, 58);
-  tft.print(String(blockHeight));
+  tft.setCursor(245, 70);
   
-  Serial.println("📦 Updated block height: " + String(blockHeight));
+  if (displayEnabled[1]) {
+    tft.print(String(blockHeight));
+    Serial.println("📦 Updated block height: " + String(blockHeight));
+  } else {
+    tft.print("---");
+    Serial.println("📦 Block height display hidden");
+  }
 }
 
-// Update miner name display
+// Update miner name display (more vertical space now)
 void updateMinerDisplay() {
   // Clear miner area
-  tft.fillRect(245, 113, 70, 10, TFT_BLACK);
+  tft.fillRect(245, 130, 70, 10, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
-  tft.setCursor(245, 113);
+  tft.setCursor(245, 130);
   
-  // Truncate miner name if too long
-  String displayMiner = minerName;
-  if (displayMiner.length() > 10) {
-    displayMiner = displayMiner.substring(0, 10);
+  if (displayEnabled[3]) {
+    // Truncate miner name if too long
+    String displayMiner = minerName;
+    if (displayMiner.length() > 10) {
+      displayMiner = displayMiner.substring(0, 10);
+    }
+    tft.print(displayMiner);
+    Serial.println("⛏️ Updated miner: " + displayMiner);
+  } else {
+    tft.print("---");
+    Serial.println("⛏️ Miner display hidden");
   }
-  tft.print(displayMiner);
-  
-  Serial.println("⛏️ Updated miner: " + displayMiner);
 }
 
-// Update fee rate display
+// Update fee rate display (now on bottom bar)
 void updateFeeDisplay() {
-  // Clear fee area
-  tft.fillRect(245, 153, 25, 20, TFT_BLACK);
-  
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(245, 153);
-  tft.print(String(feeRate));
-  
-  Serial.println("⚡ Updated fee: " + String(feeRate) + " sat/vB");
-}
-
-// Update sats per dollar display
-void updateSatsPerDollarDisplay() {
   int barY = 175;
-  int section1Width = 91;
+  int section1Width = 106;  // Wider sections now (3 sections total)
   
-  // Clear sats/USD area
+  // Clear fee area on bottom bar
   tft.fillRect(section1Width + 5, barY + 22, 80, 20, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
   tft.setCursor(section1Width + 5, barY + 22);
-  tft.print(String(satsPerDollar));
   
-  Serial.println("💎 Updated sats/$: " + String(satsPerDollar));
+  if (displayEnabled[11]) {
+    tft.print(String(feeRate));
+    Serial.println("⚡ Updated fee: " + String(feeRate) + " sat/vB");
+  } else {
+    tft.print("--");
+    Serial.println("⚡ Fee display hidden");
+  }
+}
+
+// Update sats per dollar display (first section of bottom bar)
+void updateSatsPerDollarDisplay() {
+  int barY = 175;
+  
+  // Clear sats/USD area
+  tft.fillRect(5, barY + 22, 90, 20, TFT_BLACK);
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(5, barY + 22);
+  
+  if (displayEnabled[0]) {  // Tied to price
+    tft.print(String(satsPerDollar));
+    Serial.println("💎 Updated sats/$: " + String(satsPerDollar));
+  } else {
+    tft.print("---");
+    Serial.println("💎 Sats/$ display hidden");
+  }
+}
+
+// Market cap removed from display (no longer used)
+
+// Supply removed from display (no longer used)
+
+// Update date/time display
+void updateDateTimeDisplay() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return;
+  }
+  
+  // Clear date/time area
+  tft.fillRect(10, 150, 230, 20, TFT_BLACK);
+  
+  // Format components separately (ESP32-compatible)
+  char dayOfWeek[10];
+  char monthDay[10];
+  char timeOnly[10];
+  
+  strftime(dayOfWeek, sizeof(dayOfWeek), "%a", &timeinfo);      // "Mon"
+  strftime(monthDay, sizeof(monthDay), "%b %d", &timeinfo);     // "May 05"
+  strftime(timeOnly, sizeof(timeOnly), "%I:%M%p", &timeinfo);   // "08:42PM"
+  
+  // Strip leading zeros like MATRIX does
+  char* time = timeOnly;
+  if (time[0] == '0') time++;  // "8:42PM" instead of "08:42PM"
+  
+  // Build final string: "Mon, May 05  8:42PM"
+  char timeStr[30];
+  snprintf(timeStr, sizeof(timeStr), "%s, %s  %s", dayOfWeek, monthDay, time);
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 150);
+  tft.print(timeStr);
+  
+  Serial.println("🕒 Updated time: " + String(timeStr));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -580,31 +745,30 @@ void updateSatsPerDollarDisplay() {
 
 void updateLiveIndicator()
 {
-  // Bottom data bar position
+  // Bottom data bar position - now 3 sections
   int barY = 175;
-  int section1Width = 91;
-  int section2Width = 91;
-  int section3Width = 91;
-  int liveX = section1Width + section2Width + section3Width;
+  int section1Width = 106;
+  int section2Width = 106;
+  int liveX = section1Width + section2Width;
   
   // Clear the LIVE indicator area
-  tft.fillRect(liveX + 1, barY + 1, 46, 46, TFT_BLACK);
+  tft.fillRect(liveX + 1, barY + 1, 106, 46, TFT_BLACK);
   
   if (wifiConnected)
   {
     tft.setTextColor(TFT_CYAN);
     tft.setTextSize(1);
-    tft.setCursor(liveX + 8, barY + 5);
+    tft.setCursor(liveX + 38, barY + 5);
     tft.print("LIVE");
-    tft.fillCircle(liveX + 24, barY + 32, 5, TFT_CYAN);
+    tft.fillCircle(liveX + 54, barY + 32, 5, TFT_CYAN);
   }
   else
   {
     tft.setTextColor(TFT_RED);
     tft.setTextSize(1);
-    tft.setCursor(liveX + 2, barY + 5);
+    tft.setCursor(liveX + 32, barY + 5);
     tft.print("OFFLINE");
-    tft.fillCircle(liveX + 24, barY + 32, 5, TFT_RED);
+    tft.fillCircle(liveX + 54, barY + 32, 5, TFT_RED);
   }
 }
 
@@ -732,9 +896,9 @@ void connectWiFi()
 {
   WiFi.mode(WIFI_STA);
   
-  // Use saved credentials if available, otherwise use hardcoded defaults
-  String connectSSID = (savedSSID.length() > 0) ? savedSSID : String(ssid);
-  String connectPassword = (savedPassword.length() > 0) ? savedPassword : String(password);
+  // Use saved credentials (AP mode will be started if none exist)
+  String connectSSID = savedSSID;
+  String connectPassword = savedPassword;
   
   Serial.print("Connecting to WiFi: ");
   Serial.println(connectSSID);
@@ -974,7 +1138,7 @@ void loadSavedSettings() {
 void setup()
 {
   Serial.begin(115200);
-  Serial.println("🚀 Starting STACKSWORTH CORE v1.1.0...");
+  Serial.println("🚀 Starting STACKSWORTH CORE v1.1.1...");
   
   // 🆔 Get device MAC ID
   WiFi.mode(WIFI_STA);
@@ -1153,51 +1317,39 @@ void setup()
   tft.setCursor(20, 115);
   tft.print("+2.34%");
 
-  // Right metrics - BLOCK, MINER, FEE stacked
+  // Right metrics - BLOCK and MINER (FEE moved to bottom bar)
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
 
-  // BLOCK (moved up closer to top)
-  tft.setCursor(245, 38);
+  // BLOCK (more vertical space now)
+  tft.setCursor(245, 50);
   tft.print("BLOCK");
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(245, 58);
+  tft.setCursor(245, 70);
   tft.print("842471");
 
   // MINER (more space below BLOCK)
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(245, 93);
+  tft.setCursor(245, 110);
   tft.print("MINER");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
-  tft.setCursor(245, 113);
+  tft.setCursor(245, 130);
   tft.print("FoundryUSA");
 
-  // FEE (more space below MINER)
-  tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(2);
-  tft.setCursor(245, 133);
-  tft.print("FEE");
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(245, 153);
-  tft.print("23");
-  tft.setTextSize(1);
-  tft.setCursor(270, 157);
-  tft.print("sat/vB");
-
   // Date and Time display (between cyan border and orange bottom bar)
+  // Will be updated by NTP sync
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
   tft.setCursor(10, 150);
-  tft.print("Mon, May 5  8:42PM");
+  tft.print("Syncing time...");
 
-  // Bottom data bar - 4 sections with orange border (closer to footer)
+  // Bottom data bar - 3 sections with orange border (SATS/USD | FEE | LIVE)
   int barY = 175;
   int barHeight = 48;
-  int section1Width = 91;
-  int section2Width = 91;
-  int section3Width = 91;
-  int section4Width = 47;
+  int section1Width = 106;  // Wider sections now
+  int section2Width = 106;
+  int section3Width = 108;  // Slightly wider for LIVE
   
   // Draw orange border rectangle
   tft.drawRect(0, barY, 320, barHeight, TFT_ORANGE);
@@ -1205,40 +1357,32 @@ void setup()
   // Draw vertical dividers
   tft.drawLine(section1Width, barY, section1Width, barY + barHeight, TFT_ORANGE);
   tft.drawLine(section1Width + section2Width, barY, section1Width + section2Width, barY + barHeight, TFT_ORANGE);
-  tft.drawLine(section1Width + section2Width + section3Width, barY, section1Width + section2Width + section3Width, barY + barHeight, TFT_ORANGE);
 
-  // Section 1: MARKET CAP
+  // Section 1: SATS/USD
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(1);
   tft.setCursor(5, barY + 5);
-  tft.print("MARKET CAP");
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(5, barY + 22);
-  tft.print("$1.32T");
-
-  // Section 2: SATS/USD
-  tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(1);
-  tft.setCursor(section1Width + 5, barY + 5);
   tft.print("SATS/USD");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(section1Width + 5, barY + 22);
+  tft.setCursor(5, barY + 22);
   tft.print("1473");
 
-  // Section 3: SUPPLY
+  // Section 2: FEE (moved from right side)
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(1);
-  tft.setCursor(section1Width + section2Width + 5, barY + 5);
-  tft.print("SUPPLY");
+  tft.setCursor(section1Width + 5, barY + 5);
+  tft.print("FEE");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(section1Width + section2Width + 5, barY + 22);
-  tft.print("19.8M");
+  tft.setCursor(section1Width + 5, barY + 22);
+  tft.print("23");
+  tft.setTextSize(1);
+  tft.setCursor(section1Width + 30, barY + 26);
+  tft.print("sat/vB");
 
-  // Section 4: LIVE indicator (smaller box) - show WiFi status
-  int liveX = section1Width + section2Width + section3Width;
+  // Section 3: LIVE indicator - show WiFi status
+  int liveX = section1Width + section2Width;
   
   // Initial indicator (will update dynamically in loop)
   updateLiveIndicator();
@@ -1253,36 +1397,68 @@ void setup()
   if (wifiConnected) {
     Serial.println("🔄 Fetching initial Bitcoin data...");
     
+    // Configure NTP time sync
+    configTime(savedTimezone * 3600, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.println("🕒 NTP time sync started");
+    lastNtpSync = millis();
+    
+    // Show "Loading Data..." message
+    tft.fillRect(20, 75, 200, 32, TFT_BLACK);
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(2);
+    tft.setCursor(30, 85);
+    tft.print("Loading...");
+    
     // Fetch all data on startup with small delays between calls
     if (fetchPriceFromSatonak()) {
       updatePriceDisplay();
       updateSatsPerDollarDisplay();
       lastPriceFetch = millis();
+      Serial.println("✅ Price updated on display");
+    } else {
+      Serial.println("❌ Failed to fetch price");
     }
     delay(500);  // Small delay between API calls
     
     if (fetchHeightFromSatonak()) {
       updateBlockHeightDisplay();
       lastHeightFetch = millis();
+      Serial.println("✅ Block height updated on display");
+    } else {
+      Serial.println("❌ Failed to fetch block height");
     }
     delay(500);
     
     if (fetchMinerFromSatonak()) {
       updateMinerDisplay();
       lastMinerFetch = millis();
+      Serial.println("✅ Miner updated on display");
+    } else {
+      Serial.println("❌ Failed to fetch miner");
     }
     delay(500);
     
     if (fetchFeeFromSatonak()) {
       updateFeeDisplay();
       lastFeeFetch = millis();
+      Serial.println("✅ Fee updated on display");
+    } else {
+      Serial.println("❌ Failed to fetch fee");
     }
-    delay(500);
+    delay(1000);  // Longer delay before rate-limited endpoint
     
     if (fetchChange24hFromSatonak()) {
       updateChange24hDisplay();
       lastChange24hFetch = millis();
+      Serial.println("✅ 24h change updated on display");
+    } else {
+      Serial.println("⚠️ 24h change unavailable (will retry in 30 min)");
     }
+    
+    // Wait for NTP sync and update time
+    delay(1000);
+    updateDateTimeDisplay();
+    lastTimeUpdate = millis();
     
     Serial.println("✅ Initial data fetch complete!");
   } else {
@@ -1328,9 +1504,9 @@ void loop()
       Serial.println("Attempting WiFi reconnection...");
       WiFi.disconnect();
       
-      // Use saved credentials
-      String connectSSID = (savedSSID.length() > 0) ? savedSSID : String(ssid);
-      String connectPassword = (savedPassword.length() > 0) ? savedPassword : String(password);
+      // Use saved credentials only
+      String connectSSID = savedSSID;
+      String connectPassword = savedPassword;
       WiFi.begin(connectSSID.c_str(), connectPassword.c_str());
       
       // Wait up to 5 seconds for connection
@@ -1354,6 +1530,19 @@ void loop()
   // 🌐 Staggered API data fetching (only if WiFi connected)
   if (wifiConnected) {
     unsigned long now = millis();
+    
+    // Re-sync NTP every 30 minutes to prevent clock drift
+    if (now - lastNtpSync >= INTERVAL_NTP_SYNC) {
+      configTime(savedTimezone * 3600, 0, "pool.ntp.org", "time.nist.gov");
+      Serial.println("🔄 NTP re-sync (every 30 min)");
+      lastNtpSync = now;
+    }
+    
+    // Update time display every minute (uses internal clock)
+    if (now - lastTimeUpdate >= INTERVAL_TIME) {
+      updateDateTimeDisplay();
+      lastTimeUpdate = now;
+    }
     
     // Fetch price every 5 minutes
     if (now - lastPriceFetch >= INTERVAL_PRICE) {
@@ -1388,7 +1577,7 @@ void loop()
       }
     }
     
-    // Fetch 24h change every 8 minutes
+    // Fetch 24h change every 30 minutes (rate limited by API)
     if (now - lastChange24hFetch >= INTERVAL_CHANGE24H) {
       if (fetchChange24hFromSatonak()) {
         lastChange24hFetch = now;
