@@ -1,5 +1,6 @@
-//STACKSWORTH_CORE_v1.1.1
+//STACKSWORTH_CORE_v1.2.0
 //May 19,2026
+//Added: Touch screen support (3-screen carousel), automatic DST detection, dynamic miner font sizing
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -24,6 +25,7 @@ class LGFX : public lgfx::LGFX_Device
   lgfx::Panel_ILI9341 _panel_instance;
   lgfx::Bus_SPI _bus_instance;
   lgfx::Light_PWM _light_instance;
+  lgfx::Touch_XPT2046 _touch_instance;
 
 public:
 
@@ -42,7 +44,7 @@ public:
 
       cfg.pin_sclk = 14;
       cfg.pin_mosi = 13;
-      cfg.pin_miso = -1;
+      cfg.pin_miso = 12;
       cfg.pin_dc   = 2;
 
       _bus_instance.config(cfg);
@@ -86,6 +88,28 @@ public:
       _panel_instance.setLight(&_light_instance);
     }
 
+    {
+      auto cfg = _touch_instance.config();
+
+      cfg.x_min      = 0;
+      cfg.x_max      = 319;
+      cfg.y_min      = 0;
+      cfg.y_max      = 239;
+      cfg.pin_int    = 36;
+      cfg.bus_shared = true;
+      cfg.offset_rotation = 0;
+
+      cfg.spi_host = VSPI_HOST;
+      cfg.freq = 1000000;
+      cfg.pin_sclk = 14;
+      cfg.pin_mosi = 13;
+      cfg.pin_miso = 12;
+      cfg.pin_cs   = 33;
+
+      _touch_instance.config(cfg);
+      _panel_instance.setTouch(&_touch_instance);
+    }
+
     setPanel(&_panel_instance);
   }
 };
@@ -93,7 +117,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v1.1.1";
+const char* FIRMWARE_VERSION = "v1.2.0";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -155,6 +179,11 @@ String macID = "";
 // 🌐 AP Mode flags
 bool apMode = false;
 bool apMsgShown = false;
+
+// 📱 Touch Screen Management
+int currentScreen = 0;  // 0=Dashboard, 1=Block Focus, 2=Time Focus
+unsigned long lastTouchTime = 0;
+const unsigned long touchDebounce = 500;  // 500ms debounce
 
 // Get short MAC address for device identification
 String getShortMAC() {
@@ -805,7 +834,302 @@ void updateDateTimeDisplay() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 📺 DISPLAY FUNCTIONS
+// � SCREEN DRAWING FUNCTIONS (3-Screen Carousel)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Draw screen indicator dots at bottom
+void drawScreenIndicators() {
+  int dotY = 228;
+  int dotSpacing = 20;
+  int startX = 160 - dotSpacing;  // Center the 3 dots
+  
+  for (int i = 0; i < 3; i++) {
+    int dotX = startX + (i * dotSpacing);
+    uint16_t color = (i == currentScreen) ? TFT_ORANGE : 0x4208;  // Orange for active, dim gray for inactive
+    tft.fillCircle(dotX, dotY, 3, color);
+  }
+}
+
+// Screen 1: Dashboard (current main screen)
+void drawScreen1() {
+  tft.fillScreen(TFT_BLACK);
+  
+  // Subtle grid background
+  for (int x = 0; x < 320; x += 20) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 20) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+  
+  // Logo and header
+  int logoHexX = 42;
+  int logoHexY = 15;
+  int logoHexSize = 12;
+  
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+  }
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(logoHexX - 6, logoHexY - 8);
+  tft.print("S");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(65, 8);
+  tft.print("STACKSWORTH");
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(205, 8);
+  tft.print("CORE");
+  
+  // Main price card
+  tft.fillRoundRect(10, 35, 220, 105, 12, TFT_BLACK);
+  tft.drawLine(10, 140, 230, 140, TFT_CYAN);
+  tft.drawLine(230, 35, 230, 140, TFT_CYAN);
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(20, 43);
+  tft.print("BITCOIN PRICE");
+  
+  updatePriceDisplay();
+  updateChange24hDisplay();
+  
+  // Right side metrics
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(238, 50);
+  tft.print("BLOCK");
+  updateBlockHeightDisplay();
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(238, 90);
+  tft.print("MINER");
+  updateMinerDisplay();
+  
+  // Date/Time
+  updateDateTimeDisplay();
+  
+  // Bottom bar
+  int barY = 175;
+  int barHeight = 48;
+  int section1Width = 142;
+  int section2Width = 110;
+  
+  tft.drawRect(0, barY, 320, barHeight, TFT_ORANGE);
+  tft.drawLine(section1Width, barY, section1Width, barY + barHeight, TFT_ORANGE);
+  tft.drawLine(section1Width + section2Width, barY, section1Width + section2Width, barY + barHeight, TFT_ORANGE);
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(5, barY + 5);
+  tft.print("SATS/USD");
+  updateSatsPerDollarDisplay();
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(section1Width + 5, barY + 5);
+  tft.print("FEE");
+  updateFeeDisplay();
+  
+  updateLiveIndicator();
+  
+  // Screen indicators
+  drawScreenIndicators();
+}
+
+// Screen 2: Block Focus - Large block height with miner
+void drawScreen2() {
+  tft.fillScreen(TFT_BLACK);
+  
+  // Different grid pattern for visual distinction
+  for (int x = 0; x < 320; x += 30) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 30) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+  
+  // Logo and header (smaller)
+  int logoHexX = 25;
+  int logoHexY = 12;
+  int logoHexSize = 10;
+  
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_GREEN);
+  }
+  
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(1);
+  tft.setCursor(logoHexX - 4, logoHexY - 4);
+  tft.print("S");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(45, 8);
+  tft.print("BLOCK FOCUS");
+  
+  // Large block height display
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(2);
+  tft.setCursor(10, 50);
+  tft.print("BLOCK HEIGHT");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(8);
+  String blockStr = String(blockHeight);
+  int blockWidth = blockStr.length() * 48;  // Approximate width per char at size 8
+  int blockX = (320 - blockWidth) / 2;  // Center it
+  tft.setCursor(blockX, 85);
+  tft.print(blockStr);
+  
+  // Miner below in green
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(2);
+  tft.setCursor(10, 165);
+  tft.print("MINED BY:");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  int minerWidth = minerName.length() * 18;
+  int minerX = (320 - minerWidth) / 2;
+  tft.setCursor(minerX, 190);
+  String displayMiner = minerName;
+  if (displayMiner.length() > 12) {
+    displayMiner = displayMiner.substring(0, 12);
+  }
+  tft.print(displayMiner);
+  
+  // Screen indicators
+  drawScreenIndicators();
+}
+
+// Screen 3: Time Focus - Large date/time with compact footer
+void drawScreen3() {
+  tft.fillScreen(TFT_BLACK);
+  
+  // Diagonal grid pattern for visual distinction
+  for (int i = -240; i < 320; i += 40) {
+    tft.drawLine(i, 0, i + 240, 240, 0x2104);
+  }
+  
+  // Logo and header (smaller)
+  int logoHexX = 25;
+  int logoHexY = 12;
+  int logoHexSize = 10;
+  
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_CYAN);
+  }
+  
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  tft.setCursor(logoHexX - 4, logoHexY - 4);
+  tft.print("S");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(45, 8);
+  tft.print("TIME FOCUS");
+  
+  // Get current time
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)) {
+    // Large day of week
+    char dayOfWeek[10];
+    strftime(dayOfWeek, sizeof(dayOfWeek), "%A", &timeinfo);
+    
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(4);
+    int dayWidth = strlen(dayOfWeek) * 24;
+    int dayX = (320 - dayWidth) / 2;
+    tft.setCursor(dayX, 45);
+    tft.print(dayOfWeek);
+    
+    // Large time
+    char timeOnly[10];
+    strftime(timeOnly, sizeof(timeOnly), "%I:%M%p", &timeinfo);
+    char* time = timeOnly;
+    if (time[0] == '0') time++;
+    
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(7);
+    int timeWidth = strlen(time) * 42;
+    int timeX = (320 - timeWidth) / 2;
+    tft.setCursor(timeX, 95);
+    tft.print(time);
+    
+    // Date below
+    char monthDay[15];
+    strftime(monthDay, sizeof(monthDay), "%B %d, %Y", &timeinfo);
+    
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(2);
+    int dateWidth = strlen(monthDay) * 12;
+    int dateX = (320 - dateWidth) / 2;
+    tft.setCursor(dateX, 170);
+    tft.print(monthDay);
+  }
+  
+  // Compact footer with block and price
+  tft.drawLine(0, 195, 320, 195, TFT_CYAN);
+  
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  tft.setCursor(10, 203);
+  tft.print("BLOCK:");
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 213);
+  tft.print(String(blockHeight));
+  
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  tft.setCursor(160, 203);
+  tft.print("PRICE:");
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(160, 213);
+  String priceStr = getCurrencySymbol() + String(btcPrice / 1000) + "K";
+  tft.print(priceStr);
+  
+  // Screen indicators
+  drawScreenIndicators();
+}
+
+// Refresh current screen with latest data
+void refreshCurrentScreen() {
+  switch(currentScreen) {
+    case 0:
+      drawScreen1();
+      break;
+    case 1:
+      drawScreen2();
+      break;
+    case 2:
+      drawScreen3();
+      break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// �📺 DISPLAY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
 void updateLiveIndicator()
@@ -1203,7 +1527,8 @@ void loadSavedSettings() {
 void setup()
 {
   Serial.begin(115200);
-  Serial.println("🚀 Starting STACKSWORTH CORE v1.1.1...");
+  Serial.println("🚀 Starting STACKSWORTH CORE v1.2.0...");
+  Serial.println("📱 Features: Touch Screen | Auto DST | Dynamic Sizing");
   
   // 🆔 Get device MAC ID
   WiFi.mode(WIFI_STA);
@@ -1309,229 +1634,43 @@ void setup()
   
   // Only draw main UI if NOT in AP mode
   if (!apMode) {
-    // Clear screen and draw full UI
-    tft.fillScreen(TFT_BLACK);
-
-    // Subtle grid background
-    for (int x = 0; x < 320; x += 20)
-    {
-      tft.drawLine(x, 0, x, 240, 0x2104);
-    }
-
-    for (int y = 0; y < 240; y += 20)
-    {
-      tft.drawLine(0, y, 320, y, 0x2104);
-    }
-
-  // Draw logo - Orange hexagon with S (closer to header)
-  int logoHexX = 42;
-  int logoHexY = 15;
-  int logoHexSize = 12;
-  
-  // Draw hexagon
-  for (int i = 0; i < 6; i++) {
-    float angle1 = i * 60 * PI / 180;
-    float angle2 = (i + 1) * 60 * PI / 180;
-    int x1 = logoHexX + logoHexSize * cos(angle1);
-    int y1 = logoHexY + logoHexSize * sin(angle1);
-    int x2 = logoHexX + logoHexSize * cos(angle2);
-    int y2 = logoHexY + logoHexSize * sin(angle2);
-    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
-  }
-  
-  // Draw S inside hexagon
-  tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(2);
-  tft.setCursor(logoHexX - 6, logoHexY - 8);
-  tft.print("S");
-
-  // Header: STACKSWORTH CORE (centered more)
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(65, 8);
-  tft.print("STACKSWORTH");
-  
-  tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(205, 8);
-  tft.print("CORE");
-
-  // Main price card (moved up closer to header)
-  tft.fillRoundRect(10, 35, 220, 105, 12, TFT_BLACK);
-
-  // Cyan accent border (bottom + right side)
-  tft.drawLine(10, 140, 230, 140, TFT_CYAN);
-  tft.drawLine(230, 35, 230, 140, TFT_CYAN);
-
-  // Labels
-  tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(2);
-
-  tft.setCursor(20, 43);
-  tft.print("BITCOIN PRICE");
-
-  // Price (larger area for 6 digits)
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(4);
-
-  tft.setCursor(20, 75);
-  tft.print("$67,842");
-
-  // 24h change percentage
-  tft.setTextColor(TFT_GREEN);  // Will be green or red based on API
-  tft.setTextSize(2);
-  tft.setCursor(20, 115);
-  tft.print("+2.34%");
-
-  // Right metrics - BLOCK and MINER (FEE moved to bottom bar)
-  tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(2);
-
-  // BLOCK (more vertical space now)
-  tft.setCursor(238, 50);
-  tft.print("BLOCK");
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(238, 70);
-  tft.print("842471");
-
-  // MINER (moved closer to BLOCK)
-  tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(238, 90);
-  tft.print("MINER");
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);  // Larger miner name
-  tft.setCursor(238, 108);
-  tft.print("ViaBTC");
-
-  // Date and Time display (between cyan border and orange bottom bar)
-  // Will be updated by NTP sync
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 150);
-  tft.print("Syncing time...");
-
-  // Bottom data bar - 3 sections with orange border (SATS/USD | FEE | LIVE)
-  int barY = 175;
-  int barHeight = 48;
-  int section1Width = 142;  // SATS/USD
-  int section2Width = 110;  // FEE (narrower)
-  int section3Width = 68;   // LIVE (wider for text)
-  
-  // Draw orange border rectangle
-  tft.drawRect(0, barY, 320, barHeight, TFT_ORANGE);
-  
-  // Draw vertical dividers
-  tft.drawLine(section1Width, barY, section1Width, barY + barHeight, TFT_ORANGE);
-  tft.drawLine(section1Width + section2Width, barY, section1Width + section2Width, barY + barHeight, TFT_ORANGE);
-
-  // Section 1: SATS/USD
-  tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(2);  // Larger labels
-  tft.setCursor(5, barY + 5);
-  tft.print("SATS/USD");
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(5, barY + 24);
-  tft.print("1473");
-
-  // Section 2: FEE (narrower now)
-  tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(2);  // Larger labels
-  tft.setCursor(section1Width + 5, barY + 5);
-  tft.print("FEE");
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(section1Width + 5, barY + 24);
-  tft.print("23");
-  tft.setTextSize(1);
-  tft.setCursor(section1Width + 25, barY + 28);
-  tft.print("sat/vB");
-
-  // Section 3: LIVE indicator - show WiFi status (wider with text)
-  int liveX = section1Width + section2Width;
-  
-  // Initial indicator (will update dynamically in loop)
-  updateLiveIndicator();
-
-  // Footer
-  tft.setTextColor(0x528A);  // Dim gray
-  tft.setTextSize(1);
-  tft.setCursor(90, 228);
-  tft.print("Built By STACKSWORTH");
-  
-  // 🚀 Initial data fetch if WiFi is connected
-  if (wifiConnected) {
-    Serial.println("🔄 Fetching initial Bitcoin data...");
-    
-    // Configure NTP time sync with DST support
-    // DST offset is 3600 seconds (1 hour) - ESP32 handles it automatically
-    configTime(savedTimezone * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-    Serial.println("🕒 NTP time sync started with automatic DST");
-    lastNtpSync = millis();
-    
-    // Show "Loading Data..." message
-    tft.fillRect(20, 75, 200, 32, TFT_BLACK);
-    tft.setTextColor(TFT_CYAN);
-    tft.setTextSize(2);
-    tft.setCursor(30, 85);
-    tft.print("Loading...");
-    
-    // Fetch all data on startup with small delays between calls
-    if (fetchPriceFromSatonak()) {
-      updatePriceDisplay();
-      updateSatsPerDollarDisplay();
+    // 🚀 Initial data fetch if WiFi is connected
+    if (wifiConnected) {
+      Serial.println("🔄 Fetching initial Bitcoin data...");
+      
+      // Configure NTP time sync with DST support
+      // DST offset is 3600 seconds (1 hour) - ESP32 handles it automatically
+      configTime(savedTimezone * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+      Serial.println("🕒 NTP time sync started with automatic DST");
+      lastNtpSync = millis();
+      
+      // Fetch all data before drawing screens
+      fetchPriceFromSatonak();
       lastPriceFetch = millis();
-      Serial.println("✅ Price updated on display");
-    } else {
-      Serial.println("❌ Failed to fetch price");
-    }
-    delay(500);  // Small delay between API calls
-    
-    if (fetchHeightFromSatonak()) {
-      updateBlockHeightDisplay();
+      delay(500);
+      
+      fetchHeightFromSatonak();
       lastHeightFetch = millis();
-      Serial.println("✅ Block height updated on display");
-    } else {
-      Serial.println("❌ Failed to fetch block height");
-    }
-    delay(500);
-    
-    if (fetchMinerFromSatonak()) {
-      updateMinerDisplay();
+      delay(500);
+      
+      fetchMinerFromSatonak();
       lastMinerFetch = millis();
-      Serial.println("✅ Miner updated on display");
-    } else {
-      Serial.println("❌ Failed to fetch miner");
-    }
-    delay(500);
-    
-    if (fetchFeeFromSatonak()) {
-      updateFeeDisplay();
+      delay(500);
+      
+      fetchFeeFromSatonak();
       lastFeeFetch = millis();
-      Serial.println("✅ Fee updated on display");
-    } else {
-      Serial.println("❌ Failed to fetch fee");
-    }
-    delay(1000);  // Longer delay before rate-limited endpoint
-    
-    if (fetchChange24hFromSatonak()) {
-      updateChange24hDisplay();
+      delay(1000);
+      
+      fetchChange24hFromSatonak();
       lastChange24hFetch = millis();
-      Serial.println("✅ 24h change updated on display");
-    } else {
-      Serial.println("⚠️ 24h change unavailable (will retry in 30 min)");
+      
+      Serial.println("✅ Initial data fetch complete!");
     }
     
-    // Wait for NTP sync and update time
-    delay(1000);
-    updateDateTimeDisplay();
-    lastTimeUpdate = millis();
-    
-    Serial.println("✅ Initial data fetch complete!");
-  } else {
-    Serial.println("⚠️ No WiFi - showing placeholder data");
+    // Draw initial screen (Dashboard)
+    drawScreen1();
+    Serial.println("📱 Touch screen enabled - tap to cycle through screens");
   }
-  
-  } // End of if (!apMode) block
   
   initialSetupDone = true;
 }
@@ -1541,17 +1680,31 @@ void loop()
   // 📡 Process DNS requests when in AP mode (for captive portal)
   if (apMode) {
     dnsServer.processNextRequest();
+    return;  // Skip everything else in AP mode
+  }
+  
+  // 📱 Handle touch screen input
+  uint16_t touchX, touchY;
+  if (tft.getTouch(&touchX, &touchY)) {
+    unsigned long now = millis();
+    
+    // Debounce: only process touch if enough time has passed
+    if (now - lastTouchTime > touchDebounce) {
+      lastTouchTime = now;
+      
+      // Cycle to next screen
+      currentScreen = (currentScreen + 1) % 3;
+      Serial.printf("📱 Touch detected! Switching to screen %d\n", currentScreen);
+      
+      // Redraw the new screen
+      refreshCurrentScreen();
+    }
   }
   
   // Check WiFi status periodically and reconnect if needed
   if (millis() - lastWiFiCheck >= wifiCheckInterval)
   {
     lastWiFiCheck = millis();
-    
-    // Skip WiFi checks if in AP mode
-    if (apMode) {
-      return;
-    }
     
     bool wasConnected = wifiConnected;
     wifiConnected = (WiFi.status() == WL_CONNECTED);
@@ -1561,7 +1714,11 @@ void loop()
     {
       Serial.print("WiFi status changed: ");
       Serial.println(wifiConnected ? "Connected" : "Disconnected");
-      updateLiveIndicator();
+      
+      // Only update LIVE indicator if on dashboard screen
+      if (currentScreen == 0) {
+        updateLiveIndicator();
+      }
     }
     
     // Try to reconnect if disconnected
@@ -1588,7 +1745,11 @@ void loop()
         Serial.println("Reconnected to WiFi!");
         Serial.print("IP Address: ");
         Serial.println(WiFi.localIP());
-        updateLiveIndicator();
+        
+        // Only update LIVE indicator if on dashboard screen
+        if (currentScreen == 0) {
+          updateLiveIndicator();
+        }
       }
     }
   }
@@ -1608,14 +1769,25 @@ void loop()
     if (now - lastTimeUpdate >= INTERVAL_TIME) {
       updateDateTimeDisplay();
       lastTimeUpdate = now;
+      
+      // Refresh screen 3 if it's active (time display)
+      if (currentScreen == 2) {
+        drawScreen3();
+      }
     }
     
     // Fetch price every 5 minutes
     if (now - lastPriceFetch >= INTERVAL_PRICE) {
       if (fetchPriceFromSatonak()) {
         lastPriceFetch = now;
-        updatePriceDisplay();
-        updateSatsPerDollarDisplay();
+        
+        // Update displays based on active screen
+        if (currentScreen == 0) {
+          updatePriceDisplay();
+          updateSatsPerDollarDisplay();
+        } else if (currentScreen == 2) {
+          drawScreen3();  // Refresh footer with new price
+        }
       }
     }
     
@@ -1623,7 +1795,15 @@ void loop()
     if (now - lastHeightFetch >= INTERVAL_HEIGHT) {
       if (fetchHeightFromSatonak()) {
         lastHeightFetch = now;
-        updateBlockHeightDisplay();
+        
+        // Update displays based on active screen
+        if (currentScreen == 0) {
+          updateBlockHeightDisplay();
+        } else if (currentScreen == 1) {
+          drawScreen2();  // Refresh block focus screen
+        } else if (currentScreen == 2) {
+          drawScreen3();  // Refresh footer with new block
+        }
       }
     }
     
@@ -1631,7 +1811,13 @@ void loop()
     if (now - lastMinerFetch >= INTERVAL_MINER) {
       if (fetchMinerFromSatonak()) {
         lastMinerFetch = now;
-        updateMinerDisplay();
+        
+        // Update displays based on active screen
+        if (currentScreen == 0) {
+          updateMinerDisplay();
+        } else if (currentScreen == 1) {
+          drawScreen2();  // Refresh block focus with new miner
+        }
       }
     }
     
@@ -1639,7 +1825,11 @@ void loop()
     if (now - lastFeeFetch >= INTERVAL_FEE) {
       if (fetchFeeFromSatonak()) {
         lastFeeFetch = now;
-        updateFeeDisplay();
+        
+        // Only update if on dashboard
+        if (currentScreen == 0) {
+          updateFeeDisplay();
+        }
       }
     }
     
@@ -1647,7 +1837,11 @@ void loop()
     if (now - lastChange24hFetch >= INTERVAL_CHANGE24H) {
       if (fetchChange24hFromSatonak()) {
         lastChange24hFetch = now;
-        updateChange24hDisplay();
+        
+        // Only update if on dashboard
+        if (currentScreen == 0) {
+          updateChange24hDisplay();
+        }
       }
     }
   }
