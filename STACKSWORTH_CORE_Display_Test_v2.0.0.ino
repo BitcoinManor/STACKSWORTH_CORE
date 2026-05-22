@@ -92,19 +92,19 @@ public:
       auto cfg = _touch_instance.config();
 
       cfg.x_min      = 0;
-      cfg.x_max      = 319;
+      cfg.x_max      = 239;
       cfg.y_min      = 0;
-      cfg.y_max      = 239;
+      cfg.y_max      = 319;
       cfg.pin_int    = 36;
       cfg.bus_shared = true;
       cfg.offset_rotation = 0;
 
       cfg.spi_host = VSPI_HOST;
       cfg.freq = 1000000;
-      cfg.pin_sclk = 14;
-      cfg.pin_mosi = 13;
-      cfg.pin_miso = 12;
-      cfg.pin_cs   = 33;
+      cfg.pin_sclk = 14;  // Shared SPI with display
+      cfg.pin_mosi = 13;  // Shared SPI with display
+      cfg.pin_miso = 12;  // Shared SPI with display
+      cfg.pin_cs   = 33;  // Touch CS (separate from display CS=15)
 
       _touch_instance.config(cfg);
       _panel_instance.setTouch(&_touch_instance);
@@ -184,6 +184,7 @@ bool apMsgShown = false;
 int currentScreen = 0;  // 0=Dashboard, 1=Block Focus, 2=Time Focus
 unsigned long lastTouchTime = 0;
 const unsigned long touchDebounce = 500;  // 500ms debounce
+bool touchDebugMode = false;  // Set to true to see continuous touch status
 
 // 🌍 Timezone configuration (same as Matrix.ino)
 const char *ntpServer = "pool.ntp.org";
@@ -753,21 +754,30 @@ void updateMinerDisplay() {
       
       Serial.println("⛏️ Updated miner: " + word1 + " " + word2);
     } else {
-      // Single word
-      String displayMiner = minerName;
-      int displaySize = (displayMiner.length() > 6) ? 1 : 2;
-      
-      // Truncate only if using size 2 (size 1 can fit ~13 chars in 82px)
-      if (displaySize == 2 && displayMiner.length() > 6) {
-        displayMiner = displayMiner.substring(0, 6);
-      } else if (displaySize == 1 && displayMiner.length() > 13) {
-        displayMiner = displayMiner.substring(0, 13);
+      // Single word - auto-hyphenate if over 6 characters to keep readable size 2 font
+      if (minerName.length() > 6) {
+        // Hyphenate: split at middle, add hyphen to first part
+        int splitPoint = (minerName.length() + 1) / 2;  // Split roughly in middle
+        String word1 = minerName.substring(0, splitPoint) + "-";
+        String word2 = minerName.substring(splitPoint);
+        
+        // Print both parts in size 2 (readable size)
+        tft.setTextSize(2);
+        tft.setCursor(238, 108);
+        tft.print(word1);
+        
+        tft.setTextSize(2);
+        tft.setCursor(238, 124);
+        tft.print(word2);
+        
+        Serial.println("⛏️ Updated miner: " + word1 + " " + word2 + " (hyphenated, size 2)");
+      } else {
+        // 6 characters or less - fits in one line, size 2
+        tft.setTextSize(2);
+        tft.setCursor(238, 108);
+        tft.print(minerName);
+        Serial.println("⛏️ Updated miner: " + minerName + " (size 2)");
       }
-      
-      tft.setTextSize(displaySize);
-      tft.setCursor(238, 108);
-      tft.print(displayMiner);
-      Serial.println("⛏️ Updated miner: " + displayMiner + " (size " + String(displaySize) + ")");
     }
   } else {
     tft.setTextSize(2);
@@ -867,12 +877,19 @@ void updateDateTimeDisplay() {
 // � SCREEN DRAWING FUNCTIONS (3-Screen Carousel)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Draw screen indicator dots at bottom
+// Draw screen indicator dots at bottom with footer text
 void drawScreenIndicators() {
   int dotY = 228;
   int dotSpacing = 20;
-  int startX = 160 - dotSpacing;  // Center the 3 dots
+  int startX = 255;  // Move dots to the right side
   
+  // Footer text on left
+  tft.setTextColor(0x528A);  // Dim gray
+  tft.setTextSize(1);
+  tft.setCursor(5, 228);
+  tft.print("BitcoinManor.com");
+  
+  // Dots on right
   for (int i = 0; i < 3; i++) {
     int dotX = startX + (i * dotSpacing);
     uint16_t color = (i == currentScreen) ? TFT_ORANGE : 0x4208;  // Orange for active, dim gray for inactive
@@ -970,7 +987,7 @@ void drawScreen1() {
   
   updateLiveIndicator();
   
-  // Screen indicators
+  // Screen indicators with footer
   drawScreenIndicators();
 }
 
@@ -1032,16 +1049,23 @@ void drawScreen2() {
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(3);
-  int minerWidth = minerName.length() * 18;
-  int minerX = (320 - minerWidth) / 2;
-  tft.setCursor(minerX, 190);
+  
+  // Auto-hyphenate long single-word miner names
   String displayMiner = minerName;
-  if (displayMiner.length() > 12) {
+  if (minerName.indexOf(' ') < 0 && minerName.length() > 10) {
+    // Single word over 10 chars - hyphenate to fit better
+    int splitPoint = (minerName.length() + 1) / 2;
+    displayMiner = minerName.substring(0, splitPoint) + "-" + minerName.substring(splitPoint);
+  } else if (displayMiner.length() > 12) {
     displayMiner = displayMiner.substring(0, 12);
   }
+  
+  int minerWidth = displayMiner.length() * 18;
+  int minerX = (320 - minerWidth) / 2;
+  tft.setCursor(minerX, 190);
   tft.print(displayMiner);
   
-  // Screen indicators
+  // Screen indicators with footer
   drawScreenIndicators();
 }
 
@@ -1139,7 +1163,7 @@ void drawScreen3() {
   String priceStr = getCurrencySymbol() + String(btcPrice / 1000) + "K";
   tft.print(priceStr);
   
-  // Screen indicators
+  // Screen indicators with footer
   drawScreenIndicators();
 }
 
@@ -1586,8 +1610,15 @@ void setup()
   Serial.println("📺 Display initialized");
 
   tft.setBrightness(savedBrightness);
-  tft.setRotation(1);
+  tft.setRotation(1);  // Landscape mode
   tft.fillScreen(TFT_BLACK);
+  
+  // Initialize touch controller
+  if (tft.touch()) {
+    Serial.println("✅ Touch controller found");
+  } else {
+    Serial.println("❌ Touch controller NOT found - hardware issue?");
+  }
   
   // Draw splash screen - hex logo and text on same line
   int splashY = 100;
@@ -1708,13 +1739,24 @@ void setup()
     drawScreen1();
     Serial.println("📱 Touch screen enabled - tap to cycle through screens");
     
-    // Test touch initialization
+    // Test touch initialization - try multiple times
     Serial.println("🔍 Touch controller test:");
-    uint16_t testX, testY;
-    if (tft.getTouch(&testX, &testY)) {
-      Serial.printf("✅ Touch detected at startup: X=%d, Y=%d\n", testX, testY);
-    } else {
-      Serial.println("⚠️ No touch detected at startup (waiting for first touch)");
+    Serial.println("🔧 Touch pins: CS=33, IRQ=36, shared SPI (MOSI=13, MISO=12, SCK=14)");
+    
+    bool touchWorking = false;
+    for (int i = 0; i < 5; i++) {
+      uint16_t testX, testY;
+      if (tft.getTouch(&testX, &testY)) {
+        Serial.printf("✅ Touch detected! X=%d, Y=%d\n", testX, testY);
+        touchWorking = true;
+        break;
+      }
+      delay(100);
+    }
+    
+    if (!touchWorking) {
+      Serial.println("⚠️ Touch not detected at startup (normal - waiting for first touch)");
+      Serial.println("💡 Try tapping screen now...");
     }
   }
   
@@ -1729,9 +1771,21 @@ void loop()
     return;  // Skip everything else in AP mode
   }
   
-  // 📱 Handle touch screen input
+  // 📱 Handle touch screen input - check continuously (like the example)
   uint16_t touchX, touchY;
-  if (tft.getTouch(&touchX, &touchY)) {
+  bool isTouched = tft.getTouch(&touchX, &touchY);
+  
+  // Optional: Debug mode - prints touch status every second
+  static unsigned long lastDebugPrint = 0;
+  if (touchDebugMode && millis() - lastDebugPrint > 1000) {
+    lastDebugPrint = millis();
+    Serial.printf("🔍 Touch status: %s\n", isTouched ? "TOUCHED" : "not touched");
+    if (isTouched) {
+      Serial.printf("   Coordinates: X=%d, Y=%d\n", touchX, touchY);
+    }
+  }
+  
+  if (isTouched) {
     unsigned long now = millis();
     
     // Debug: Log every touch detection
