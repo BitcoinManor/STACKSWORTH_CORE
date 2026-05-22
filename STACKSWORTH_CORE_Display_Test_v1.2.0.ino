@@ -704,11 +704,11 @@ void updateChange24hDisplay() {
 // Update block height display (more vertical space now)
 void updateBlockHeightDisplay() {
   // Clear block area (wider to prevent stray characters)
-  tft.fillRect(238, 70, 82, 20, TFT_BLACK);
+  tft.fillRect(238, 60, 82, 20, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(238, 70);
+  tft.setCursor(238, 60);
   
   if (displayEnabled[1]) {
     tft.print(String(blockHeight));
@@ -722,7 +722,7 @@ void updateBlockHeightDisplay() {
 // Update miner name display (dynamic sizing for long words)
 void updateMinerDisplay() {
   // Clear miner area (larger and wider to prevent stray characters)
-  tft.fillRect(238, 108, 82, 36, TFT_BLACK);
+  tft.fillRect(238, 98, 82, 36, TFT_BLACK);
   
   tft.setTextColor(TFT_WHITE);
   
@@ -745,43 +745,56 @@ void updateMinerDisplay() {
       
       // Print with dynamic sizing
       tft.setTextSize(word1Size);
-      tft.setCursor(238, 108);
+      tft.setCursor(238, 98);
       tft.print(word1);
       
       tft.setTextSize(word2Size);
-      tft.setCursor(238, 124);
+      tft.setCursor(238, 114);
       tft.print(word2);
       
       Serial.println("⛏️ Updated miner: " + word1 + " " + word2);
     } else {
-      // Single word - auto-hyphenate if over 6 characters to keep readable size 2 font
+      // Single word - check for CamelCase, then hyphenate if over 6 characters
       if (minerName.length() > 6) {
-        // Hyphenate: split at middle, add hyphen to first part
-        int splitPoint = (minerName.length() + 1) / 2;  // Split roughly in middle
-        String word1 = minerName.substring(0, splitPoint) + "-";
+        int splitPoint = -1;
+        
+        // Look for capital letter in middle (CamelCase like "SpiderPool")
+        for (int i = 1; i < minerName.length() - 1; i++) {
+          if (isupper(minerName.charAt(i))) {
+            splitPoint = i;
+            break;
+          }
+        }
+        
+        // If no CamelCase found, split at middle
+        if (splitPoint == -1) {
+          splitPoint = (minerName.length() + 1) / 2;
+        }
+        
+        String word1 = minerName.substring(0, splitPoint);
         String word2 = minerName.substring(splitPoint);
         
-        // Print both parts in size 2 (readable size)
+        // Print both parts in size 2 (readable size, no hyphen needed for natural splits)
         tft.setTextSize(2);
-        tft.setCursor(238, 108);
+        tft.setCursor(238, 98);
         tft.print(word1);
         
         tft.setTextSize(2);
-        tft.setCursor(238, 124);
+        tft.setCursor(238, 114);
         tft.print(word2);
         
-        Serial.println("⛏️ Updated miner: " + word1 + " " + word2 + " (hyphenated, size 2)");
+        Serial.println("⛏️ Updated miner: " + word1 + " " + word2 + " (split, size 2)");
       } else {
         // 6 characters or less - fits in one line, size 2
         tft.setTextSize(2);
-        tft.setCursor(238, 108);
+        tft.setCursor(238, 98);
         tft.print(minerName);
         Serial.println("⛏️ Updated miner: " + minerName + " (size 2)");
       }
     }
   } else {
     tft.setTextSize(2);
-    tft.setCursor(238, 108);
+    tft.setCursor(238, 98);
     tft.print("---");
     Serial.println("⛏️ Miner display hidden");
   }
@@ -887,7 +900,7 @@ void drawScreenIndicators() {
   tft.setTextColor(0x528A);  // Dim gray
   tft.setTextSize(1);
   tft.setCursor(5, 228);
-  tft.print("BitcoinManor.com");
+  tft.print("Built By BitcoinManor.com");
   
   // Dots on right
   for (int i = 0; i < 3; i++) {
@@ -952,12 +965,12 @@ void drawScreen1() {
   // Right side metrics
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
-  tft.setCursor(238, 50);
+  tft.setCursor(238, 40);
   tft.print("BLOCK");
   updateBlockHeightDisplay();
   
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(238, 90);
+  tft.setCursor(238, 80);
   tft.print("MINER");
   updateMinerDisplay();
   
