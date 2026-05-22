@@ -185,6 +185,34 @@ int currentScreen = 0;  // 0=Dashboard, 1=Block Focus, 2=Time Focus
 unsigned long lastTouchTime = 0;
 const unsigned long touchDebounce = 500;  // 500ms debounce
 
+// 🌍 Timezone configuration (same as Matrix.ino)
+const char *ntpServer = "pool.ntp.org";
+const char* TIMEZONE_STRINGS[] = {
+  "UTC0",                                    // UTC +0
+  "GMT0BST,M3.5.0/1,M10.5.0",              // London +0/+1
+  "CET-1CEST,M3.5.0,M10.5.0/3",            // Paris/Berlin +1/+2
+  "EET-2EEST,M3.5.0/3,M10.5.0/4",          // Helsinki +2/+3
+  "MSK-3",                                  // Moscow +3 (no DST)
+  "JST-9",                                  // Tokyo +9 (no DST)
+  "AEST-10AEDT,M10.1.0,M4.1.0/3",          // Sydney +10/+11
+  "NZST-12NZDT,M9.5.0,M4.1.0/3",           // Auckland +12/+13
+  "HST10",                                  // Hawaii -10 (no DST)
+  "AKST9AKDT,M3.2.0,M11.1.0",              // Alaska -9/-8
+  "PST8PDT,M3.2.0,M11.1.0",                // Pacific -8/-7
+  "MST7MDT,M3.2.0,M11.1.0",                // Mountain -7/-6 (Calgary!)
+  "CST6CDT,M3.2.0,M11.1.0",                // Central -6/-5
+  "EST5EDT,M3.2.0,M11.1.0"                 // Eastern -5/-4
+};
+
+const char* TIMEZONE_NAMES[] = {
+  "UTC (+0)", "London (+0/+1)", "Paris (+1/+2)", "Helsinki (+2/+3)",
+  "Moscow (+3)", "Tokyo (+9)", "Sydney (+10/+11)", "Auckland (+12/+13)",
+  "Hawaii (-10)", "Alaska (-9/-8)", "Pacific (-8/-7)", "Mountain (-7/-6)",
+  "Central (-6/-5)", "Eastern (-5/-4)"
+};
+
+#define NUM_TIMEZONES (sizeof(TIMEZONE_STRINGS) / sizeof(TIMEZONE_STRINGS[0]))
+
 // Get short MAC address for device identification
 String getShortMAC() {
   uint8_t mac[6];
@@ -729,15 +757,17 @@ void updateMinerDisplay() {
       String displayMiner = minerName;
       int displaySize = (displayMiner.length() > 6) ? 1 : 2;
       
-      // Truncate if needed
-      if (displayMiner.length() > 6) {
+      // Truncate only if using size 2 (size 1 can fit ~13 chars in 82px)
+      if (displaySize == 2 && displayMiner.length() > 6) {
         displayMiner = displayMiner.substring(0, 6);
+      } else if (displaySize == 1 && displayMiner.length() > 13) {
+        displayMiner = displayMiner.substring(0, 13);
       }
       
       tft.setTextSize(displaySize);
       tft.setCursor(238, 108);
       tft.print(displayMiner);
-      Serial.println("⛏️ Updated miner: " + displayMiner);
+      Serial.println("⛏️ Updated miner: " + displayMiner + " (size " + String(displaySize) + ")");
     }
   } else {
     tft.setTextSize(2);
@@ -1638,10 +1668,17 @@ void setup()
     if (wifiConnected) {
       Serial.println("🔄 Fetching initial Bitcoin data...");
       
-      // Configure NTP time sync with DST support
-      // DST offset is 3600 seconds (1 hour) - ESP32 handles it automatically
-      configTime(savedTimezone * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-      Serial.println("🕒 NTP time sync started with automatic DST");
+      // 🌍 Configure timezone using proper timezone strings (auto-handles DST!) - Same as Matrix.ino
+      // Map UTC offset to timezone index
+      int tzIndex = 11;  // Default: Mountain Time (Calgary)
+      if (savedTimezone == -8) tzIndex = 10;      // Pacific
+      else if (savedTimezone == -7) tzIndex = 11; // Mountain
+      else if (savedTimezone == -6) tzIndex = 12; // Central
+      else if (savedTimezone == -5) tzIndex = 13; // Eastern
+      
+      const char* tzString = TIMEZONE_STRINGS[tzIndex];
+      configTzTime(tzString, ntpServer);
+      Serial.printf("🕒 Timezone configured: %s (%s)\n", TIMEZONE_NAMES[tzIndex], tzString);
       lastNtpSync = millis();
       
       // Fetch all data before drawing screens
@@ -1670,6 +1707,15 @@ void setup()
     // Draw initial screen (Dashboard)
     drawScreen1();
     Serial.println("📱 Touch screen enabled - tap to cycle through screens");
+    
+    // Test touch initialization
+    Serial.println("🔍 Touch controller test:");
+    uint16_t testX, testY;
+    if (tft.getTouch(&testX, &testY)) {
+      Serial.printf("✅ Touch detected at startup: X=%d, Y=%d\n", testX, testY);
+    } else {
+      Serial.println("⚠️ No touch detected at startup (waiting for first touch)");
+    }
   }
   
   initialSetupDone = true;
@@ -1688,16 +1734,21 @@ void loop()
   if (tft.getTouch(&touchX, &touchY)) {
     unsigned long now = millis();
     
+    // Debug: Log every touch detection
+    Serial.printf("🔍 Touch RAW: X=%d, Y=%d, Time since last=%lu\n", touchX, touchY, now - lastTouchTime);
+    
     // Debounce: only process touch if enough time has passed
     if (now - lastTouchTime > touchDebounce) {
       lastTouchTime = now;
       
       // Cycle to next screen
       currentScreen = (currentScreen + 1) % 3;
-      Serial.printf("📱 Touch detected! Switching to screen %d\n", currentScreen);
+      Serial.printf("📱 Touch ACCEPTED! Coordinates: (%d, %d) -> Switching to screen %d\n", touchX, touchY, currentScreen);
       
       // Redraw the new screen
       refreshCurrentScreen();
+    } else {
+      Serial.println("⏱️ Touch ignored (debounce)");
     }
   }
   
@@ -1760,8 +1811,16 @@ void loop()
     
     // Re-sync NTP every 30 minutes to prevent clock drift
     if (now - lastNtpSync >= INTERVAL_NTP_SYNC) {
-      configTime(savedTimezone * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-      Serial.println("🔄 NTP re-sync (every 30 min) with automatic DST");
+      // Map UTC offset to timezone index
+      int tzIndex = 11;  // Default: Mountain Time (Calgary)
+      if (savedTimezone == -8) tzIndex = 10;      // Pacific
+      else if (savedTimezone == -7) tzIndex = 11; // Mountain
+      else if (savedTimezone == -6) tzIndex = 12; // Central
+      else if (savedTimezone == -5) tzIndex = 13; // Eastern
+      
+      const char* tzString = TIMEZONE_STRINGS[tzIndex];
+      configTzTime(tzString, ntpServer);
+      Serial.printf("🔄 NTP re-sync: %s (%s)\n", TIMEZONE_NAMES[tzIndex], tzString);
       lastNtpSync = now;
     }
     
