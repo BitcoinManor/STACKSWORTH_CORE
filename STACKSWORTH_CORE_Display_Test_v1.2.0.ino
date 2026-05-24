@@ -97,7 +97,7 @@ public:
       cfg.y_max      = 319;
       cfg.pin_int    = 36;
       cfg.bus_shared = true;
-      cfg.offset_rotation = 0;
+      cfg.offset_rotation = 1;  // Match display rotation (landscape)
 
       cfg.spi_host = VSPI_HOST;
       cfg.freq = 1000000;
@@ -1627,8 +1627,15 @@ void setup()
   tft.fillScreen(TFT_BLACK);
   
   // Initialize touch controller
+  pinMode(36, INPUT);  // Explicitly set IRQ pin as input
+  
   if (tft.touch()) {
     Serial.println("✅ Touch controller found");
+    
+    // Try to calibrate touch (some controllers need this)
+    uint16_t calData[8];
+    tft.setTouchCalibrate(calData);  // Use default calibration
+    Serial.println("🔧 Touch calibration applied");
   } else {
     Serial.println("❌ Touch controller NOT found - hardware issue?");
   }
@@ -1792,7 +1799,8 @@ void loop()
   static unsigned long lastDebugPrint = 0;
   if (touchDebugMode && millis() - lastDebugPrint > 1000) {
     lastDebugPrint = millis();
-    Serial.printf("🔍 Touch status: %s\n", isTouched ? "TOUCHED" : "not touched");
+    int irqState = digitalRead(36);  // Read IRQ pin directly
+    Serial.printf("🔍 Touch status: %s | IRQ pin: %d\n", isTouched ? "TOUCHED" : "not touched", irqState);
     if (isTouched) {
       Serial.printf("   Coordinates: X=%d, Y=%d\n", touchX, touchY);
     }
