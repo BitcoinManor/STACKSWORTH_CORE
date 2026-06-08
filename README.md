@@ -2,10 +2,10 @@
 
 **Bitcoin’s Pulse — Simplified.**
 
-The STACKSWORTH CORE is a compact Bitcoin display designed to bring essential Bitcoin data to life in a clean, accessible format.  ***BUILDING CURRENTLY, Day 34
+The STACKSWORTH CORE is a compact Bitcoin display designed to bring essential Bitcoin data to life in a clean, accessible format.  ***BUILDING CURRENTLY, Day 35
 
 Built on an affordable 2.8" display platform, CORE serves as the perfect entry point into the STACKSWORTH ecosystem — with upgrade paths including custom CNC wood enclosures. Just finished milling the back of 6 Dark Walnut cases nd now milling African Mahoganey and Purple Heart front panels. Picked up an African Padauk that is orange in colour just like bitcoin. Finished milling Padauk fronts and starting more  Black Walnut enclosures, delayed for making Black Walnut, need more material. Just picked up more Walnut and it has milled one piece already.
-Sanded and stained the 1st 3 units to display our 3 wood species. Milled more Black Walnut back case. Building 3 units. Having issues with CNC, back again tomorrow. Ordered new parts for CNC, will just finish 3 models and do photo shoot for the 3 to be seen. Unfortunately no new progress today. 10-2.8" LCD ESP devices have arrived, ready to build tomorrow
+Sanded and stained the 1st 3 units to display our 3 wood species. Milled more Black Walnut back case. Building 3 units. Having issues with CNC, back again tomorrow. Ordered new parts for CNC, will just finish 3 models and do photo shoot for the 3 to be seen. Unfortunately no new progress today. 10-2.8" LCD ESP devices have arrived, ready to build tomorrow. Sunday funday, Built the Children's Book to match the Device launch.
 ---
 
 ## 🔥 Features
