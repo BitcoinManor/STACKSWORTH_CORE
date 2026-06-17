@@ -1,6 +1,6 @@
-//STACKSWORTH_CORE_v1.2.0
-//May 19,2026
-//Added: Touch screen support (3-screen carousel), automatic DST detection, dynamic miner font sizing
+//STACKSWORTH_CORE_v2.0.1-touchfix
+//June 16,2026
+//Touch fix: XPT2046 on dedicated SPI pins, stable calibration, edge-trigger tap handling
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -91,20 +91,24 @@ public:
     {
       auto cfg = _touch_instance.config();
 
-      cfg.x_min      = 0;
-      cfg.x_max      = 239;
-      cfg.y_min      = 0;
-      cfg.y_max      = 319;
-      cfg.pin_int    = 36;
-      cfg.bus_shared = true;
-      cfg.offset_rotation = 1;  // Match display rotation (landscape)
+      // XPT2046 touch controller raw calibration values.
+      // These are raw ADC values, not screen pixel dimensions.
+      cfg.x_min      = 280;
+      cfg.x_max      = 3860;
+      cfg.y_min      = 340;
+      cfg.y_max      = 3860;
 
-      cfg.spi_host = VSPI_HOST;
+      cfg.pin_int    = 36;     // TOUCH_IRQ
+      cfg.bus_shared = false;  // Touch is NOT on the TFT SPI pins on this board
+      cfg.offset_rotation = 1; // Match display rotation (landscape)
+
+      // STACKSWORTH CORE / CYD 2.8 touch pins
+      cfg.spi_host = HSPI_HOST;
       cfg.freq = 1000000;
-      cfg.pin_sclk = 14;  // Shared SPI with display
-      cfg.pin_mosi = 13;  // Shared SPI with display
-      cfg.pin_miso = 12;  // Shared SPI with display
-      cfg.pin_cs   = 33;  // Touch CS (separate from display CS=15)
+      cfg.pin_sclk = 25;  // TOUCH_CLK
+      cfg.pin_mosi = 32;  // TOUCH_DIN / MOSI
+      cfg.pin_miso = 39;  // TOUCH_DO / MISO
+      cfg.pin_cs   = 33;  // TOUCH_CS
 
       _touch_instance.config(cfg);
       _panel_instance.setTouch(&_touch_instance);
@@ -117,7 +121,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v1.2.0";
+const char* FIRMWARE_VERSION = "v2.0.1-touchfix";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -185,6 +189,7 @@ int currentScreen = 0;  // 0=Dashboard, 1=Block Focus, 2=Time Focus
 unsigned long lastTouchTime = 0;
 const unsigned long touchDebounce = 500;  // 500ms debounce
 bool touchDebugMode = false;  // Set to true to see continuous touch status
+bool touchWasDown = false;   // Edge-trigger touch so one press = one screen change
 
 // 🌍 Timezone configuration (same as Matrix.ino)
 const char *ntpServer = "pool.ntp.org";
@@ -662,7 +667,7 @@ void updatePriceDisplay() {
   tft.setTextSize(4);
   tft.setCursor(20, 75);
   
-  if (displayEnabled[0]) {
+  if (displayEnabled[3]) {
     String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
     tft.print(priceStr);
     Serial.println("💰 Updated price display: " + priceStr);
@@ -677,7 +682,7 @@ void updateChange24hDisplay() {
   // Clear change area
   tft.fillRect(20, 115, 200, 20, TFT_BLACK);
   
-  if (displayEnabled[8]) {
+  if (displayEnabled[2]) {
     // Set color based on positive/negative
     if (btcChange24h >= 0) {
       tft.setTextColor(TFT_GREEN);
@@ -710,7 +715,7 @@ void updateBlockHeightDisplay() {
   tft.setTextSize(2);
   tft.setCursor(238, 60);
   
-  if (displayEnabled[1]) {
+  if (displayEnabled[0]) {
     tft.print(String(blockHeight));
     Serial.println("📦 Updated block height: " + String(blockHeight));
   } else {
@@ -726,7 +731,7 @@ void updateMinerDisplay() {
   
   tft.setTextColor(TFT_WHITE);
   
-  if (displayEnabled[3]) {
+  if (displayEnabled[1]) {
     // Check if miner name has a space (two words)
     int spaceIndex = minerName.indexOf(' ');
     
@@ -812,7 +817,7 @@ void updateFeeDisplay() {
   tft.setTextSize(2);
   tft.setCursor(section1Width + 5, barY + 24);
   
-  if (displayEnabled[11]) {
+  if (displayEnabled[8]) {
     tft.print(String(feeRate));
     tft.setTextSize(1);
     tft.setCursor(section1Width + 25, barY + 28);
@@ -835,7 +840,7 @@ void updateSatsPerDollarDisplay() {
   tft.setTextSize(2);
   tft.setCursor(5, barY + 24);
   
-  if (displayEnabled[0]) {  // Tied to price
+  if (displayEnabled[5]) {
     tft.print(String(satsPerDollar));
     Serial.println("💎 Updated sats/$: " + String(satsPerDollar));
   } else {
@@ -887,7 +892,7 @@ void updateDateTimeDisplay() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// � SCREEN DRAWING FUNCTIONS (3-Screen Carousel)
+//   SCREEN DRAWING FUNCTIONS (3-Screen Carousel)
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Draw screen indicator dots at bottom with footer text
@@ -1196,7 +1201,7 @@ void refreshCurrentScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// �📺 DISPLAY FUNCTIONS
+//  📺 DISPLAY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
 void updateLiveIndicator()
@@ -1594,7 +1599,7 @@ void loadSavedSettings() {
 void setup()
 {
   Serial.begin(115200);
-  Serial.println("🚀 Starting STACKSWORTH CORE v1.2.0...");
+  Serial.println("🚀 Starting STACKSWORTH CORE v2.0.1-touchfix...");
   Serial.println("📱 Features: Touch Screen | Auto DST | Dynamic Sizing");
   
   // 🆔 Get device MAC ID
@@ -1791,42 +1796,36 @@ void loop()
     return;  // Skip everything else in AP mode
   }
   
-  // 📱 Handle touch screen input - check continuously (like the example)
+  // 📱 Handle touch screen input
+  // Edge-triggered: one physical tap advances one screen, holding does not keep cycling.
   uint16_t touchX, touchY;
   bool isTouched = tft.getTouch(&touchX, &touchY);
-  
-  // Optional: Debug mode - prints touch status every second
+
   static unsigned long lastDebugPrint = 0;
   if (touchDebugMode && millis() - lastDebugPrint > 1000) {
     lastDebugPrint = millis();
-    int irqState = digitalRead(36);  // Read IRQ pin directly
+    int irqState = digitalRead(36);
     Serial.printf("🔍 Touch status: %s | IRQ pin: %d\n", isTouched ? "TOUCHED" : "not touched", irqState);
     if (isTouched) {
       Serial.printf("   Coordinates: X=%d, Y=%d\n", touchX, touchY);
     }
   }
-  
-  if (isTouched) {
+
+  if (isTouched && !touchWasDown) {
     unsigned long now = millis();
-    
-    // Debug: Log every touch detection
-    Serial.printf("🔍 Touch RAW: X=%d, Y=%d, Time since last=%lu\n", touchX, touchY, now - lastTouchTime);
-    
-    // Debounce: only process touch if enough time has passed
+
     if (now - lastTouchTime > touchDebounce) {
       lastTouchTime = now;
-      
-      // Cycle to next screen
+      touchWasDown = true;
+
       currentScreen = (currentScreen + 1) % 3;
       Serial.printf("📱 Touch ACCEPTED! Coordinates: (%d, %d) -> Switching to screen %d\n", touchX, touchY, currentScreen);
-      
-      // Redraw the new screen
       refreshCurrentScreen();
-    } else {
-      Serial.println("⏱️ Touch ignored (debounce)");
     }
+  } else if (!isTouched) {
+    touchWasDown = false;
   }
-  
+
   // Check WiFi status periodically and reconnect if needed
   if (millis() - lastWiFiCheck >= wifiCheckInterval)
   {
