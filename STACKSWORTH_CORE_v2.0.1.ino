@@ -1,6 +1,6 @@
-//STACKSWORTH_CORE_v2.0.1-touchfix
-//June 16,2026
-//Touch fix: XPT2046 on dedicated SPI pins, stable calibration, edge-trigger tap handling
+//STACKSWORTH_CORE_v2.0.4-timefocus
+//June 17, 2026
+//Fixed: Time Focus spacing, larger weather condition, removed degree symbol hatchbox issue
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -121,7 +121,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v2.0.1-touchfix";
+const char* FIRMWARE_VERSION = "v2.0.4-timefocus";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -142,6 +142,11 @@ float btcChange24h = 0.0;
 String minerName = "Unknown";
 String marketCap = "Unknown";
 String circSupply = "Unknown";
+float latitude = 0.0;
+float longitude = 0.0;
+int temperature = 0;
+String weatherCondition = "Unknown";
+bool weatherValid = false;
 
 // ⚙️ Saved Settings
 Preferences prefs;
@@ -153,7 +158,7 @@ String savedCurrency = "USD";
 String savedTempUnit = "F";
 String savedDeviceName = "";
 uint8_t savedBrightness = 128;
-int savedTimezone = -8;  // Default Pacific (UTC-8)
+int savedTimezone = 11;  // Portal timezone index. Default Mountain (Calgary)
 bool displayEnabled[12] = {true, true, false, true, false, false, false, false, true, false, true, true}; // Default metrics
 
 // 🔄 Fetch Intervals (milliseconds) - Prioritized for importance
@@ -162,8 +167,7 @@ const unsigned long INTERVAL_MINER = 2UL * 60UL * 1000UL;      // 2 min (PRIORIT
 const unsigned long INTERVAL_PRICE = 5UL * 60UL * 1000UL;      // 5 min (PRIORITY 2)
 const unsigned long INTERVAL_FEE = 10UL * 60UL * 1000UL;       // 10 min
 const unsigned long INTERVAL_CHANGE24H = 30UL * 60UL * 1000UL; // 30 min (rate limited)
-const unsigned long INTERVAL_MARKETCAP = 30UL * 60UL * 1000UL; // 30 min (changes slowly)
-const unsigned long INTERVAL_SUPPLY = 60UL * 60UL * 1000UL;    // 60 min (changes very slowly)
+const unsigned long INTERVAL_WEATHER = 30UL * 60UL * 1000UL;   // 30 min, same as Matrix
 const unsigned long INTERVAL_TIME = 60UL * 1000UL;             // 1 min (internal clock)
 const unsigned long INTERVAL_NTP_SYNC = 30UL * 60UL * 1000UL;  // 30 min (prevent drift)
 
@@ -172,8 +176,7 @@ unsigned long lastHeightFetch = 0;
 unsigned long lastMinerFetch = 0;
 unsigned long lastFeeFetch = 0;
 unsigned long lastChange24hFetch = 0;
-unsigned long lastMarketCapFetch = 0;
-unsigned long lastSupplyFetch = 0;
+unsigned long lastWeatherFetch = 0;
 unsigned long lastTimeUpdate = 0;
 unsigned long lastNtpSync = 0;
 
@@ -218,6 +221,43 @@ const char* TIMEZONE_NAMES[] = {
 };
 
 #define NUM_TIMEZONES (sizeof(TIMEZONE_STRINGS) / sizeof(TIMEZONE_STRINGS[0]))
+
+
+String mapWeatherCode(int code)
+{
+  if (code == 0) return "Sunny";
+  else if (code == 1) return "Mostly Sunny";
+  else if (code == 2) return "Partly Cloudy";
+  else if (code == 3) return "Cloudy";
+  else if (code >= 45 && code <= 48) return "Foggy";
+  else if (code >= 51 && code <= 57) return "Drizzle";
+  else if (code >= 61 && code <= 67) return "Rain";
+  else if (code >= 71 && code <= 77) return "Snowy";
+  else if (code >= 80 && code <= 82) return "Showers";
+  else if (code >= 85 && code <= 86) return "Snow Showers";
+  else if (code >= 95 && code <= 99) return "Thunderstorm";
+  return "Unknown";
+}
+
+
+int getTimezoneIndex() {
+  // Current portal saves indexes 0-13. Older builds saved UTC offsets, so keep compatibility.
+  if (savedTimezone >= 0 && savedTimezone < (int)NUM_TIMEZONES) return savedTimezone;
+  if (savedTimezone == -10) return 8;
+  if (savedTimezone == -9) return 9;
+  if (savedTimezone == -8) return 10;
+  if (savedTimezone == -7) return 11;
+  if (savedTimezone == -6) return 12;
+  if (savedTimezone == -5) return 13;
+  return 11; // Mountain default
+}
+
+void applyTimezone() {
+  int tzIndex = getTimezoneIndex();
+  configTzTime(TIMEZONE_STRINGS[tzIndex], ntpServer);
+  Serial.printf("🕒 Timezone configured: %s (%s)\n", TIMEZONE_NAMES[tzIndex], TIMEZONE_STRINGS[tzIndex]);
+  lastNtpSync = millis();
+}
 
 // Get short MAC address for device identification
 String getShortMAC() {
@@ -573,6 +613,116 @@ bool fetchSupplyFromSatonak() {
   return false;
 }
 
+
+// 🌎 Fetch latitude/longitude from saved city using the same Matrix approach
+void fetchLatLonFromCity()
+{
+  if (WiFi.status() != WL_CONNECTED || savedCity.length() == 0) {
+    Serial.println("⚠️ Skipping lat/lon fetch - WiFi or city missing.");
+    return;
+  }
+
+  HTTPClient http;
+  String cityParam = savedCity;
+  cityParam.replace(" ", "%20");
+  String url = "https://nominatim.openstreetmap.org/search?city=" + cityParam + "&format=json&limit=1";
+
+  Serial.print("🌎 Fetching city coordinates: ");
+  Serial.println(url);
+
+  http.setTimeout(3000);
+  http.setConnectTimeout(2000);
+  http.useHTTP10(true);
+  http.setReuse(false);
+  http.begin(url);
+  http.addHeader("User-Agent", "STACKSWORTH-CORE/2.0.3 (bitcoinmanor.com)");
+
+  int httpResponseCode = http.GET();
+  if (httpResponseCode == 200) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(2048);
+    DeserializationError err = deserializeJson(doc, payload);
+
+    if (!err && doc.size() > 0) {
+      String latStr = doc[0]["lat"] | "";
+      String lonStr = doc[0]["lon"] | "";
+      latitude = latStr.toFloat();
+      longitude = lonStr.toFloat();
+      Serial.printf("✅ City coordinates: %.6f, %.6f\n", latitude, longitude);
+    } else {
+      Serial.println("❌ City lookup JSON parse failed or returned no results.");
+    }
+  } else {
+    Serial.println("❌ City lookup failed, HTTP code: " + String(httpResponseCode));
+  }
+
+  http.end();
+}
+
+// 🌡️ Fetch weather from Open-Meteo, ported from MATRIX
+bool fetchWeather()
+{
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️ No WiFi connection, skipping weather fetch.");
+    return false;
+  }
+
+  if (savedCity.length() == 0) {
+    Serial.println("❌ City not set, skipping weather fetch.");
+    return false;
+  }
+
+  if (latitude == 0.0 && longitude == 0.0) {
+    fetchLatLonFromCity();
+    delay(150);
+  }
+
+  if (latitude == 0.0 && longitude == 0.0) {
+    Serial.println("⚠️ No valid lat/lon, skipping weather fetch.");
+    weatherValid = false;
+    return false;
+  }
+
+  String weatherURL = "https://api.open-meteo.com/v1/forecast?latitude=" + String(latitude, 6) +
+                      "&longitude=" + String(longitude, 6) +
+                      "&current=temperature_2m,weather_code&timezone=auto";
+
+  HTTPClient http;
+  http.setTimeout(3000);
+  http.setConnectTimeout(2000);
+  http.useHTTP10(true);
+  http.setReuse(false);
+  http.begin(weatherURL);
+
+  Serial.print("🌡️ Fetching weather: ");
+  Serial.println(weatherURL);
+
+  int httpCode = http.GET();
+  if (httpCode == 200) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(1024);
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (!error) {
+      float temp = doc["current"]["temperature_2m"] | 0.0;
+      int weatherCode = doc["current"]["weather_code"] | -1;
+      temperature = (int)round(temp);
+      weatherCondition = mapWeatherCode(weatherCode);
+      weatherValid = true;
+      Serial.printf("✅ Updated Weather: %d°C | %s\n", temperature, weatherCondition.c_str());
+      http.end();
+      return true;
+    }
+    Serial.println("❌ Failed to parse weather JSON");
+  } else {
+    Serial.println("❌ Weather fetch failed, HTTP code: " + String(httpCode));
+  }
+
+  http.end();
+  weatherValid = false;
+  return false;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 🔄 OTA UPDATE FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -667,14 +817,9 @@ void updatePriceDisplay() {
   tft.setTextSize(4);
   tft.setCursor(20, 75);
   
-  if (displayEnabled[3]) {
-    String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
-    tft.print(priceStr);
-    Serial.println("💰 Updated price display: " + priceStr);
-  } else {
-    tft.print("---");
-    Serial.println("💰 Price display hidden");
-  }
+  String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
+  tft.print(priceStr);
+  Serial.println("💰 Updated price display: " + priceStr);
 }
 
 // Update 24h change display
@@ -682,7 +827,7 @@ void updateChange24hDisplay() {
   // Clear change area
   tft.fillRect(20, 115, 200, 20, TFT_BLACK);
   
-  if (displayEnabled[2]) {
+  if (true) {
     // Set color based on positive/negative
     if (btcChange24h >= 0) {
       tft.setTextColor(TFT_GREEN);
@@ -715,13 +860,8 @@ void updateBlockHeightDisplay() {
   tft.setTextSize(2);
   tft.setCursor(238, 60);
   
-  if (displayEnabled[0]) {
-    tft.print(String(blockHeight));
-    Serial.println("📦 Updated block height: " + String(blockHeight));
-  } else {
-    tft.print("---");
-    Serial.println("📦 Block height display hidden");
-  }
+  tft.print(String(blockHeight));
+  Serial.println("📦 Updated block height: " + String(blockHeight));
 }
 
 // Update miner name display (dynamic sizing for long words)
@@ -731,7 +871,7 @@ void updateMinerDisplay() {
   
   tft.setTextColor(TFT_WHITE);
   
-  if (displayEnabled[1]) {
+  if (true) {
     // Check if miner name has a space (two words)
     int spaceIndex = minerName.indexOf(' ');
     
@@ -817,16 +957,11 @@ void updateFeeDisplay() {
   tft.setTextSize(2);
   tft.setCursor(section1Width + 5, barY + 24);
   
-  if (displayEnabled[8]) {
-    tft.print(String(feeRate));
-    tft.setTextSize(1);
-    tft.setCursor(section1Width + 25, barY + 28);
-    tft.print("sat/vB");
-    Serial.println("⚡ Updated fee: " + String(feeRate) + " sat/vB");
-  } else {
-    tft.print("--");
-    Serial.println("⚡ Fee display hidden");
-  }
+  tft.print(String(feeRate));
+  tft.setTextSize(1);
+  tft.setCursor(section1Width + 25, barY + 28);
+  tft.print("sat/vB");
+  Serial.println("⚡ Updated fee: " + String(feeRate) + " sat/vB");
 }
 
 // Update sats per dollar display (first section of bottom bar)
@@ -840,13 +975,8 @@ void updateSatsPerDollarDisplay() {
   tft.setTextSize(2);
   tft.setCursor(5, barY + 24);
   
-  if (displayEnabled[5]) {
-    tft.print(String(satsPerDollar));
-    Serial.println("💎 Updated sats/$: " + String(satsPerDollar));
-  } else {
-    tft.print("---");
-    Serial.println("💎 Sats/$ display hidden");
-  }
+  tft.print(String(satsPerDollar));
+  Serial.println("💎 Updated sats/$: " + String(satsPerDollar));
 }
 
 // Market cap removed from display (no longer used)
@@ -944,7 +1074,7 @@ void drawScreen1() {
   
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
-  tft.setCursor(logoHexX - 6, logoHexY - 8);
+  tft.setCursor(logoHexX - 4, logoHexY - 7);
   tft.print("S");
   
   tft.setTextColor(TFT_WHITE);
@@ -1038,7 +1168,7 @@ void drawScreen2() {
   
   tft.setTextColor(TFT_GREEN);
   tft.setTextSize(1);
-  tft.setCursor(logoHexX - 4, logoHexY - 4);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
   tft.print("S");
   
   tft.setTextColor(TFT_WHITE);
@@ -1090,17 +1220,17 @@ void drawScreen2() {
 // Screen 3: Time Focus - Large date/time with compact footer
 void drawScreen3() {
   tft.fillScreen(TFT_BLACK);
-  
+
   // Diagonal grid pattern for visual distinction
   for (int i = -240; i < 320; i += 40) {
     tft.drawLine(i, 0, i + 240, 240, 0x2104);
   }
-  
+
   // Logo and header (smaller)
   int logoHexX = 25;
   int logoHexY = 12;
   int logoHexSize = 10;
-  
+
   for (int i = 0; i < 6; i++) {
     float angle1 = i * 60 * PI / 180;
     float angle2 = (i + 1) * 60 * PI / 180;
@@ -1110,78 +1240,109 @@ void drawScreen3() {
     int y2 = logoHexY + logoHexSize * sin(angle2);
     tft.drawLine(x1, y1, x2, y2, TFT_CYAN);
   }
-  
+
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(logoHexX - 4, logoHexY - 4);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
   tft.print("S");
-  
+
   tft.setTextColor(TFT_WHITE);
   tft.setCursor(45, 8);
   tft.print("TIME FOCUS");
-  
-  // Get current time
+
   struct tm timeinfo;
   if (getLocalTime(&timeinfo)) {
-    // Large day of week
     char dayOfWeek[10];
     strftime(dayOfWeek, sizeof(dayOfWeek), "%A", &timeinfo);
-    
+
     tft.setTextColor(TFT_CYAN);
-    tft.setTextSize(4);
-    int dayWidth = strlen(dayOfWeek) * 24;
+    tft.setTextSize(3);
+    int dayWidth = strlen(dayOfWeek) * 18;
     int dayX = (320 - dayWidth) / 2;
-    tft.setCursor(dayX, 45);
+    if (dayX < 5) dayX = 5;
+    tft.setCursor(dayX, 32);
     tft.print(dayOfWeek);
-    
-    // Large time
+
     char timeOnly[10];
     strftime(timeOnly, sizeof(timeOnly), "%I:%M%p", &timeinfo);
     char* time = timeOnly;
     if (time[0] == '0') time++;
-    
+
     tft.setTextColor(TFT_WHITE);
-    tft.setTextSize(7);
-    int timeWidth = strlen(time) * 42;
+    tft.setTextSize(6);
+    int timeWidth = strlen(time) * 36;
     int timeX = (320 - timeWidth) / 2;
-    tft.setCursor(timeX, 95);
+    if (timeX < 0) timeX = 0;
+    tft.setCursor(timeX, 70);
     tft.print(time);
-    
-    // Date below
+
     char monthDay[15];
     strftime(monthDay, sizeof(monthDay), "%B %d, %Y", &timeinfo);
-    
+
+    // Raised date line under the main time
     tft.setTextColor(TFT_CYAN);
     tft.setTextSize(2);
     int dateWidth = strlen(monthDay) * 12;
     int dateX = (320 - dateWidth) / 2;
-    tft.setCursor(dateX, 170);
+    if (dateX < 5) dateX = 5;
+    tft.setCursor(dateX, 128);
     tft.print(monthDay);
   }
-  
-  // Compact footer with block and price
-  tft.drawLine(0, 195, 320, 195, TFT_CYAN);
-  
+
+  // City + temp line. Avoid the degree symbol because the default TFT font shows it as a box.
+  String cityLine = savedCity.length() ? savedCity : "Location";
+  if (weatherValid) {
+    int displayTemp = temperature;
+    if (savedTempUnit == "F") displayTemp = (int)round((temperature * 9.0 / 5.0) + 32);
+    cityLine += "  ";
+    if (displayTemp >= 0) cityLine += "+";
+    cityLine += String(displayTemp);
+    cityLine += savedTempUnit;   // Example: +68F, not +68°F
+  } else {
+    cityLine += "  --";
+    cityLine += savedTempUnit;
+  }
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  int cityWidth = cityLine.length() * 12;
+  int cityX = (320 - cityWidth) / 2;
+  if (cityX < 5) cityX = 5;
+  tft.setCursor(cityX, 148);
+  tft.print(cityLine);
+
+  // Larger weather condition line
+  String conditionLine = weatherValid ? weatherCondition : "Weather Syncing";
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  int conditionWidth = conditionLine.length() * 12;
+  int conditionX = (320 - conditionWidth) / 2;
+  if (conditionX < 5) conditionX = 5;
+  tft.setCursor(conditionX, 170);
+  tft.print(conditionLine);
+
+  // Compact footer with block and price, separated from weather content
+  tft.drawLine(0, 192, 320, 192, TFT_CYAN);
+
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(10, 203);
+  tft.setCursor(10, 198);
   tft.print("BLOCK:");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(10, 213);
+  tft.setCursor(10, 209);
   tft.print(String(blockHeight));
-  
+
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(160, 203);
+  tft.setCursor(145, 198);
   tft.print("PRICE:");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(160, 213);
-  String priceStr = getCurrencySymbol() + String(btcPrice / 1000) + "K";
+  tft.setCursor(145, 209);
+  String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
   tft.print(priceStr);
-  
-  // Screen indicators with footer
+
   drawScreenIndicators();
 }
 
@@ -1305,7 +1466,7 @@ void startAccessPoint() {
   // Draw S inside hexagon
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(3);
-  tft.setCursor(logoHexX - 9, logoHexY - 12);
+  tft.setCursor(logoHexX - 7, logoHexY - 11);
   tft.print("S");
   
   // STACKSWORTH CORE below logo
@@ -1499,6 +1660,7 @@ void setupWebServer() {
     }
     if (request->hasParam("timezone", true)) {
       savedTimezone = request->getParam("timezone", true)->value().toInt();
+      if (savedTimezone < 0 || savedTimezone >= (int)NUM_TIMEZONES) savedTimezone = getTimezoneIndex();
     }
     if (request->hasParam("currency", true)) {
       savedCurrency = request->getParam("currency", true)->value();
@@ -1513,16 +1675,13 @@ void setupWebServer() {
       savedBrightness = request->getParam("brightness", true)->value().toInt();
     }
     
-    // Save display options
-    for (int i = 0; i < 12; i++) {
-      String paramName = "show" + String(i);
-      if (request->hasParam(paramName, true)) {
-        displayEnabled[i] = (request->getParam(paramName, true)->value() == "1");
-      }
-    }
     
-    // Save to preferences
+    // Save to preferences. If portal is reopened and WiFi fields are left blank, keep existing credentials.
     prefs.begin("stacksworth", false);
+    savedSSID.trim();
+    savedPassword.trim();
+    if (savedSSID.length() == 0) savedSSID = prefs.getString("ssid", "");
+    if (savedPassword.length() == 0) savedPassword = prefs.getString("password", "");
     prefs.putString("ssid", savedSSID);
     prefs.putString("password", savedPassword);
     prefs.putString("city", savedCity);
@@ -1532,11 +1691,6 @@ void setupWebServer() {
     prefs.putString("devicename", savedDeviceName);
     prefs.putUChar("brightness", savedBrightness);
     
-    // Save display options
-    for (int i = 0; i < 12; i++) {
-      String key = "show" + String(i);
-      prefs.putBool(key.c_str(), displayEnabled[i]);
-    }
     
     prefs.end();
     
@@ -1572,16 +1726,15 @@ void loadSavedSettings() {
   savedSSID = prefs.getString("ssid", "");
   savedPassword = prefs.getString("password", "");
   savedCity = prefs.getString("city", "");
-  savedTimezone = prefs.getInt("timezone", -8);  // Default Pacific (UTC-8)
+  savedTimezone = prefs.getInt("timezone", 11);  // Default Mountain index
   savedCurrency = prefs.getString("currency", "USD");
   savedTempUnit = prefs.getString("tempunit", "F");
   savedDeviceName = prefs.getString("devicename", "");
   savedBrightness = prefs.getUChar("brightness", 128);
   
-  // Load display options
+  // CORE now uses a fixed curated dashboard; old checkbox prefs are ignored.
   for (int i = 0; i < 12; i++) {
-    String key = "show" + String(i);
-    displayEnabled[i] = prefs.getBool(key.c_str(), (i == 0 || i == 1 || i == 3 || i == 8 || i == 10 || i == 11));
+    displayEnabled[i] = true;
   }
   
   prefs.end();
@@ -1599,7 +1752,7 @@ void loadSavedSettings() {
 void setup()
 {
   Serial.begin(115200);
-  Serial.println("🚀 Starting STACKSWORTH CORE v2.0.1-touchfix...");
+  Serial.println("🚀 Starting STACKSWORTH CORE " + String(FIRMWARE_VERSION) + "...");
   Serial.println("📱 Features: Touch Screen | Auto DST | Dynamic Sizing");
   
   // 🆔 Get device MAC ID
@@ -1724,18 +1877,8 @@ void setup()
     if (wifiConnected) {
       Serial.println("🔄 Fetching initial Bitcoin data...");
       
-      // 🌍 Configure timezone using proper timezone strings (auto-handles DST!) - Same as Matrix.ino
-      // Map UTC offset to timezone index
-      int tzIndex = 11;  // Default: Mountain Time (Calgary)
-      if (savedTimezone == -8) tzIndex = 10;      // Pacific
-      else if (savedTimezone == -7) tzIndex = 11; // Mountain
-      else if (savedTimezone == -6) tzIndex = 12; // Central
-      else if (savedTimezone == -5) tzIndex = 13; // Eastern
-      
-      const char* tzString = TIMEZONE_STRINGS[tzIndex];
-      configTzTime(tzString, ntpServer);
-      Serial.printf("🕒 Timezone configured: %s (%s)\n", TIMEZONE_NAMES[tzIndex], tzString);
-      lastNtpSync = millis();
+      // 🌍 Configure timezone using portal timezone index (auto-handles DST)
+      applyTimezone();
       
       // Fetch all data before drawing screens
       fetchPriceFromSatonak();
@@ -1756,6 +1899,10 @@ void setup()
       
       fetchChange24hFromSatonak();
       lastChange24hFetch = millis();
+      delay(500);
+
+      fetchWeather();
+      lastWeatherFetch = millis();
       
       Serial.println("✅ Initial data fetch complete!");
     }
@@ -1885,30 +2032,33 @@ void loop()
     
     // Re-sync NTP every 30 minutes to prevent clock drift
     if (now - lastNtpSync >= INTERVAL_NTP_SYNC) {
-      // Map UTC offset to timezone index
-      int tzIndex = 11;  // Default: Mountain Time (Calgary)
-      if (savedTimezone == -8) tzIndex = 10;      // Pacific
-      else if (savedTimezone == -7) tzIndex = 11; // Mountain
-      else if (savedTimezone == -6) tzIndex = 12; // Central
-      else if (savedTimezone == -5) tzIndex = 13; // Eastern
-      
-      const char* tzString = TIMEZONE_STRINGS[tzIndex];
-      configTzTime(tzString, ntpServer);
-      Serial.printf("🔄 NTP re-sync: %s (%s)\n", TIMEZONE_NAMES[tzIndex], tzString);
+      applyTimezone();
       lastNtpSync = now;
     }
     
-    // Update time display every minute (uses internal clock)
+    // Update time only on screens that actually contain time.
+    // This prevents the dashboard time rectangle from drawing over Block Focus.
     if (now - lastTimeUpdate >= INTERVAL_TIME) {
-      updateDateTimeDisplay();
       lastTimeUpdate = now;
-      
-      // Refresh screen 3 if it's active (time display)
-      if (currentScreen == 2) {
+      if (currentScreen == 0) {
+        updateDateTimeDisplay();
+      } else if (currentScreen == 2) {
         drawScreen3();
       }
     }
     
+    // Fetch weather every 30 minutes if a city is saved
+    if (now - lastWeatherFetch >= INTERVAL_WEATHER) {
+      if (fetchWeather()) {
+        lastWeatherFetch = now;
+        if (currentScreen == 2) {
+          drawScreen3();
+        }
+      } else {
+        lastWeatherFetch = now; // avoid hammering endpoint if unavailable
+      }
+    }
+
     // Fetch price every 5 minutes
     if (now - lastPriceFetch >= INTERVAL_PRICE) {
       if (fetchPriceFromSatonak()) {
