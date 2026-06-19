@@ -1,4 +1,4 @@
-//STACKSWORTH_CORE_v2.0.4-timefocus
+//STACKSWORTH_CORE_v2.0.5-mainscreen_touchups
 //June 17, 2026
 //Fixed: Time Focus spacing, larger weather condition, removed degree symbol hatchbox issue
 
@@ -851,131 +851,83 @@ void updateChange24hDisplay() {
   }
 }
 
-// Update block height display (more vertical space now)
+// Update block height display (bottom-left dashboard box)
 void updateBlockHeightDisplay() {
-  // Clear block area (wider to prevent stray characters)
-  tft.fillRect(238, 60, 82, 20, TFT_BLACK);
-  
+  int barY = 175;
+  int blockBoxX = 5;
+  int blockBoxW = 105;
+
+  // Clear block value area in bottom bar
+  tft.fillRect(blockBoxX, barY + 24, blockBoxW, 20, TFT_BLACK);
+
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(238, 60);
-  
+  tft.setCursor(blockBoxX, barY + 24);
   tft.print(String(blockHeight));
+
   Serial.println("📦 Updated block height: " + String(blockHeight));
 }
 
-// Update miner name display (dynamic sizing for long words)
+// Update miner name display (bottom-middle dashboard box, single-line dynamic fit)
 void updateMinerDisplay() {
-  // Clear miner area (larger and wider to prevent stray characters)
-  tft.fillRect(238, 98, 82, 36, TFT_BLACK);
-  
-  tft.setTextColor(TFT_WHITE);
-  
-  if (true) {
-    // Check if miner name has a space (two words)
-    int spaceIndex = minerName.indexOf(' ');
-    
-    if (spaceIndex > 0 && spaceIndex < minerName.length() - 1) {
-      // Two-word name - split into two lines
-      String word1 = minerName.substring(0, spaceIndex);
-      String word2 = minerName.substring(spaceIndex + 1);
-      
-      // Determine size based on original length (before truncation)
-      int word1Size = (word1.length() > 6) ? 1 : 2;
-      int word2Size = (word2.length() > 6) ? 1 : 2;
-      
-      // Truncate if too long
-      if (word1.length() > 6) word1 = word1.substring(0, 6);
-      if (word2.length() > 6) word2 = word2.substring(0, 6);
-      
-      // Print with dynamic sizing
-      tft.setTextSize(word1Size);
-      tft.setCursor(238, 98);
-      tft.print(word1);
-      
-      tft.setTextSize(word2Size);
-      tft.setCursor(238, 114);
-      tft.print(word2);
-      
-      Serial.println("⛏️ Updated miner: " + word1 + " " + word2);
-    } else {
-      // Single word - check for CamelCase, then hyphenate if over 6 characters
-      if (minerName.length() > 6) {
-        int splitPoint = -1;
-        
-        // Look for capital letter in middle (CamelCase like "SpiderPool")
-        for (int i = 1; i < minerName.length() - 1; i++) {
-          if (isupper(minerName.charAt(i))) {
-            splitPoint = i;
-            break;
-          }
-        }
-        
-        // If no CamelCase found, split at middle
-        if (splitPoint == -1) {
-          splitPoint = (minerName.length() + 1) / 2;
-        }
-        
-        String word1 = minerName.substring(0, splitPoint);
-        String word2 = minerName.substring(splitPoint);
-        
-        // Print both parts in size 2 (readable size, no hyphen needed for natural splits)
-        tft.setTextSize(2);
-        tft.setCursor(238, 98);
-        tft.print(word1);
-        
-        tft.setTextSize(2);
-        tft.setCursor(238, 114);
-        tft.print(word2);
-        
-        Serial.println("⛏️ Updated miner: " + word1 + " " + word2 + " (split, size 2)");
-      } else {
-        // 6 characters or less - fits in one line, size 2
-        tft.setTextSize(2);
-        tft.setCursor(238, 98);
-        tft.print(minerName);
-        Serial.println("⛏️ Updated miner: " + minerName + " (size 2)");
-      }
-    }
-  } else {
-    tft.setTextSize(2);
-    tft.setCursor(238, 98);
-    tft.print("---");
-    Serial.println("⛏️ Miner display hidden");
+  int barY = 175;
+  int minerBoxX = 117;
+  int minerBoxW = 132;
+
+  // Clear miner value area in bottom bar
+  tft.fillRect(minerBoxX, barY + 24, minerBoxW, 20, TFT_BLACK);
+
+  String displayMiner = minerName;
+  displayMiner.trim();
+  if (displayMiner.length() == 0) displayMiner = "Unknown";
+
+  // Keep miner on one line. Size 2 fits about 11 chars in 132 px; size 1 fits about 22 chars.
+  uint8_t textSize = (displayMiner.length() <= 11) ? 2 : 1;
+  int maxChars = (textSize == 2) ? 11 : 22;
+  if (displayMiner.length() > maxChars) {
+    displayMiner = displayMiner.substring(0, maxChars - 1) + ".";
   }
+
+  int charWidth = (textSize == 2) ? 12 : 6;
+  int minerWidth = displayMiner.length() * charWidth;
+  int minerX = minerBoxX + ((minerBoxW - minerWidth) / 2);
+  if (minerX < minerBoxX) minerX = minerBoxX;
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(textSize);
+  tft.setCursor(minerX, (textSize == 2) ? barY + 24 : barY + 29);
+  tft.print(displayMiner);
+
+  Serial.println("⛏️ Updated miner display: " + displayMiner);
 }
 
-// Update fee rate display (now on bottom bar - narrower section)
+// Update fee rate display (compact right-side dashboard metric)
 void updateFeeDisplay() {
-  int barY = 175;
-  int section1Width = 142;
-  
-  // Clear fee area on bottom bar
-  tft.fillRect(section1Width + 5, barY + 24, 95, 20, TFT_BLACK);
-  
+  // Clear compact fee value area on right side
+  tft.fillRect(238, 115, 82, 20, TFT_BLACK);
+
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(section1Width + 5, barY + 24);
-  
+  tft.setCursor(238, 115);
   tft.print(String(feeRate));
+
   tft.setTextSize(1);
-  tft.setCursor(section1Width + 25, barY + 28);
+  tft.setCursor(262, 119);
   tft.print("sat/vB");
+
   Serial.println("⚡ Updated fee: " + String(feeRate) + " sat/vB");
 }
 
-// Update sats per dollar display (first section of bottom bar)
+// Update sats per dollar display (compact right-side dashboard metric)
 void updateSatsPerDollarDisplay() {
-  int barY = 175;
-  
-  // Clear sats/USD area
-  tft.fillRect(5, barY + 24, 130, 20, TFT_BLACK);
-  
+  // Clear compact sats/$ value area on right side
+  tft.fillRect(238, 60, 82, 20, TFT_BLACK);
+
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(5, barY + 24);
-  
+  tft.setCursor(238, 60);
   tft.print(String(satsPerDollar));
+
   Serial.println("💎 Updated sats/$: " + String(satsPerDollar));
 }
 
@@ -1074,7 +1026,7 @@ void drawScreen1() {
   
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
-  tft.setCursor(logoHexX - 4, logoHexY - 7);
+  tft.setCursor(logoHexX - 6, logoHexY - 8);
   tft.print("S");
   
   tft.setTextColor(TFT_WHITE);
@@ -1097,41 +1049,41 @@ void drawScreen1() {
   updatePriceDisplay();
   updateChange24hDisplay();
   
-  // Right side metrics
+  // Compact right side metrics
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
   tft.setCursor(238, 40);
-  tft.print("BLOCK");
-  updateBlockHeightDisplay();
+  tft.print("SATS/$");
+  updateSatsPerDollarDisplay();
   
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(238, 80);
-  tft.print("MINER");
-  updateMinerDisplay();
+  tft.setCursor(238, 95);
+  tft.print("FEE");
+  updateFeeDisplay();
   
   // Date/Time
   updateDateTimeDisplay();
   
-  // Bottom bar
+  // Bottom bar: wider text boxes for Block and Miner, compact LIVE on right
   int barY = 175;
   int barHeight = 48;
-  int section1Width = 142;
-  int section2Width = 110;
+  int blockSectionWidth = 112;
+  int minerSectionWidth = 140;
   
   tft.drawRect(0, barY, 320, barHeight, TFT_ORANGE);
-  tft.drawLine(section1Width, barY, section1Width, barY + barHeight, TFT_ORANGE);
-  tft.drawLine(section1Width + section2Width, barY, section1Width + section2Width, barY + barHeight, TFT_ORANGE);
+  tft.drawLine(blockSectionWidth, barY, blockSectionWidth, barY + barHeight, TFT_ORANGE);
+  tft.drawLine(blockSectionWidth + minerSectionWidth, barY, blockSectionWidth + minerSectionWidth, barY + barHeight, TFT_ORANGE);
   
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
   tft.setCursor(5, barY + 5);
-  tft.print("SATS/USD");
-  updateSatsPerDollarDisplay();
+  tft.print("BLOCK");
+  updateBlockHeightDisplay();
   
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(section1Width + 5, barY + 5);
-  tft.print("FEE");
-  updateFeeDisplay();
+  tft.setCursor(blockSectionWidth + 5, barY + 5);
+  tft.print("MINER");
+  updateMinerDisplay();
   
   updateLiveIndicator();
   
@@ -1168,7 +1120,7 @@ void drawScreen2() {
   
   tft.setTextColor(TFT_GREEN);
   tft.setTextSize(1);
-  tft.setCursor(logoHexX - 2, logoHexY - 3);
+  tft.setCursor(logoHexX - 4, logoHexY - 4);
   tft.print("S");
   
   tft.setTextColor(TFT_WHITE);
@@ -1243,7 +1195,7 @@ void drawScreen3() {
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(logoHexX - 2, logoHexY - 3);
+  tft.setCursor(logoHexX - 4, logoHexY - 4);
   tft.print("S");
 
   tft.setTextColor(TFT_WHITE);
@@ -1322,25 +1274,25 @@ void drawScreen3() {
   tft.print(conditionLine);
 
   // Compact footer with block and price, separated from weather content
-  tft.drawLine(0, 192, 320, 192, TFT_CYAN);
+  tft.drawLine(0, 194, 320, 194, TFT_CYAN);
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(10, 198);
+  tft.setCursor(10, 200);
   tft.print("BLOCK:");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(10, 209);
+  tft.setCursor(10, 211);
   tft.print(String(blockHeight));
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(145, 198);
+  tft.setCursor(175, 200);
   tft.print("PRICE:");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(145, 209);
-  String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
+  tft.setCursor(175, 211);
+  String priceStr = getCurrencySymbol() + String(btcPrice / 1000) + "K";
   tft.print(priceStr);
 
   drawScreenIndicators();
@@ -1367,13 +1319,13 @@ void refreshCurrentScreen() {
 
 void updateLiveIndicator()
 {
-  // Bottom data bar position - LIVE section is wider now for text
+  // Bottom data bar position - LIVE section stays on the compact right side
   int barY = 175;
-  int section1Width = 142;
-  int section2Width = 110;
-  int liveX = section1Width + section2Width;
+  int blockSectionWidth = 112;
+  int minerSectionWidth = 140;
+  int liveX = blockSectionWidth + minerSectionWidth;
   
-  // Clear the LIVE indicator area (now 68px wide)
+  // Clear the LIVE indicator area (68px wide)
   tft.fillRect(liveX + 1, barY + 1, 66, 46, TFT_BLACK);
   
   if (wifiConnected)
@@ -1466,7 +1418,7 @@ void startAccessPoint() {
   // Draw S inside hexagon
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(3);
-  tft.setCursor(logoHexX - 7, logoHexY - 11);
+  tft.setCursor(logoHexX - 9, logoHexY - 12);
   tft.print("S");
   
   // STACKSWORTH CORE below logo
