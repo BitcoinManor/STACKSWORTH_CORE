@@ -1,6 +1,6 @@
-//STACKSWORTH_CORE_v2.0.5-mainscreen_touchups
-//June 17, 2026
-//Fixed: Time Focus spacing, larger weather condition, removed degree symbol hatchbox issue
+//STACKSWORTH_CORE_v2.0.5-dashboard-polish
+//June 19, 2026
+//Fixed: Dashboard currency tag, left-aligned Block/Miner bottom bar, wider miner display
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -121,7 +121,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v2.0.4-timefocus";
+const char* FIRMWARE_VERSION = "v2.0.5-dashboard-polish";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -851,7 +851,17 @@ void updateChange24hDisplay() {
   }
 }
 
-// Update block height display (bottom-left dashboard box)
+// Draw subtle selected currency tag inside Bitcoin price card
+void updateCurrencyTagDisplay() {
+  // Bottom-right of the large Bitcoin Price card
+  tft.fillRect(190, 122, 35, 12, TFT_BLACK);
+  tft.setTextColor(0x528A);  // dim gray
+  tft.setTextSize(1);
+  tft.setCursor(202, 124);
+  tft.print(savedCurrency);
+}
+
+// Update block height display (bottom-left dashboard box, left-justified)
 void updateBlockHeightDisplay() {
   int barY = 175;
   int blockBoxX = 5;
@@ -868,7 +878,7 @@ void updateBlockHeightDisplay() {
   Serial.println("📦 Updated block height: " + String(blockHeight));
 }
 
-// Update miner name display (bottom-middle dashboard box, single-line dynamic fit)
+// Update miner name display (bottom-middle dashboard box, single-line left-justified fit)
 void updateMinerDisplay() {
   int barY = 175;
   int minerBoxX = 117;
@@ -888,14 +898,9 @@ void updateMinerDisplay() {
     displayMiner = displayMiner.substring(0, maxChars - 1) + ".";
   }
 
-  int charWidth = (textSize == 2) ? 12 : 6;
-  int minerWidth = displayMiner.length() * charWidth;
-  int minerX = minerBoxX + ((minerBoxW - minerWidth) / 2);
-  if (minerX < minerBoxX) minerX = minerBoxX;
-
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(textSize);
-  tft.setCursor(minerX, (textSize == 2) ? barY + 24 : barY + 29);
+  tft.setCursor(minerBoxX + 5, (textSize == 2) ? barY + 24 : barY + 29);
   tft.print(displayMiner);
 
   Serial.println("⛏️ Updated miner display: " + displayMiner);
@@ -1026,7 +1031,7 @@ void drawScreen1() {
   
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
-  tft.setCursor(logoHexX - 6, logoHexY - 8);
+  tft.setCursor(logoHexX - 4, logoHexY - 7);
   tft.print("S");
   
   tft.setTextColor(TFT_WHITE);
@@ -1048,6 +1053,7 @@ void drawScreen1() {
   
   updatePriceDisplay();
   updateChange24hDisplay();
+  updateCurrencyTagDisplay();
   
   // Compact right side metrics
   tft.setTextColor(TFT_ORANGE);
@@ -1120,7 +1126,7 @@ void drawScreen2() {
   
   tft.setTextColor(TFT_GREEN);
   tft.setTextSize(1);
-  tft.setCursor(logoHexX - 4, logoHexY - 4);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
   tft.print("S");
   
   tft.setTextColor(TFT_WHITE);
@@ -1195,7 +1201,7 @@ void drawScreen3() {
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(logoHexX - 4, logoHexY - 4);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
   tft.print("S");
 
   tft.setTextColor(TFT_WHITE);
@@ -1237,7 +1243,7 @@ void drawScreen3() {
     int dateWidth = strlen(monthDay) * 12;
     int dateX = (320 - dateWidth) / 2;
     if (dateX < 5) dateX = 5;
-    tft.setCursor(dateX, 128);
+    tft.setCursor(dateX, 124);
     tft.print(monthDay);
   }
 
@@ -1260,7 +1266,7 @@ void drawScreen3() {
   int cityWidth = cityLine.length() * 12;
   int cityX = (320 - cityWidth) / 2;
   if (cityX < 5) cityX = 5;
-  tft.setCursor(cityX, 148);
+  tft.setCursor(cityX, 146);
   tft.print(cityLine);
 
   // Larger weather condition line
@@ -1270,29 +1276,29 @@ void drawScreen3() {
   int conditionWidth = conditionLine.length() * 12;
   int conditionX = (320 - conditionWidth) / 2;
   if (conditionX < 5) conditionX = 5;
-  tft.setCursor(conditionX, 170);
+  tft.setCursor(conditionX, 168);
   tft.print(conditionLine);
 
   // Compact footer with block and price, separated from weather content
-  tft.drawLine(0, 194, 320, 194, TFT_CYAN);
+  tft.drawLine(0, 192, 320, 192, TFT_CYAN);
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(10, 200);
+  tft.setCursor(10, 198);
   tft.print("BLOCK:");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(10, 211);
+  tft.setCursor(10, 209);
   tft.print(String(blockHeight));
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  tft.setCursor(175, 200);
+  tft.setCursor(145, 198);
   tft.print("PRICE:");
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(175, 211);
-  String priceStr = getCurrencySymbol() + String(btcPrice / 1000) + "K";
+  tft.setCursor(145, 209);
+  String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
   tft.print(priceStr);
 
   drawScreenIndicators();
@@ -1418,7 +1424,7 @@ void startAccessPoint() {
   // Draw S inside hexagon
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(3);
-  tft.setCursor(logoHexX - 9, logoHexY - 12);
+  tft.setCursor(logoHexX - 7, logoHexY - 11);
   tft.print("S");
   
   // STACKSWORTH CORE below logo
