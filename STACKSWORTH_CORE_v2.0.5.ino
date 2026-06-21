@@ -1,6 +1,6 @@
-//STACKSWORTH_CORE_v2.0.5-dashboard-polish
-//June 19, 2026
-//Fixed: Dashboard currency tag, left-aligned Block/Miner bottom bar, wider miner display
+//STACKSWORTH_CORE_v2.0.7-newblockalert
+//June 20, 2026
+//Fixed: Faster new-block detection, synced miner refresh before alert, shorter alert hold, miner alignment, touch calibration cleanup
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -121,7 +121,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v2.0.5-dashboard-polish";
+const char* FIRMWARE_VERSION = "v2.0.7-newblockalert";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -162,7 +162,7 @@ int savedTimezone = 11;  // Portal timezone index. Default Mountain (Calgary)
 bool displayEnabled[12] = {true, true, false, true, false, false, false, false, true, false, true, true}; // Default metrics
 
 // 🔄 Fetch Intervals (milliseconds) - Prioritized for importance
-const unsigned long INTERVAL_HEIGHT = 2UL * 60UL * 1000UL;     // 2 min (PRIORITY 1: Most important)
+const unsigned long INTERVAL_HEIGHT = 30UL * 1000UL;            // 30 sec for tighter new-block alert timing
 const unsigned long INTERVAL_MINER = 2UL * 60UL * 1000UL;      // 2 min (PRIORITY 1: Tied to block)
 const unsigned long INTERVAL_PRICE = 5UL * 60UL * 1000UL;      // 5 min (PRIORITY 2)
 const unsigned long INTERVAL_FEE = 10UL * 60UL * 1000UL;       // 10 min
@@ -179,6 +179,10 @@ unsigned long lastChange24hFetch = 0;
 unsigned long lastWeatherFetch = 0;
 unsigned long lastTimeUpdate = 0;
 unsigned long lastNtpSync = 0;
+
+// 🔔 New Block Alert State
+int lastAnnouncedBlockHeight = 0;
+const unsigned long NEW_BLOCK_HOLD_MS = 2500;
 
 // 🆔 Device MAC ID
 String macID = "";
@@ -900,7 +904,7 @@ void updateMinerDisplay() {
 
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(textSize);
-  tft.setCursor(minerBoxX + 5, (textSize == 2) ? barY + 24 : barY + 29);
+  tft.setCursor(minerBoxX, (textSize == 2) ? barY + 24 : barY + 29);
   tft.print(displayMiner);
 
   Serial.println("⛏️ Updated miner display: " + displayMiner);
@@ -1140,10 +1144,13 @@ void drawScreen2() {
   tft.print("BLOCK HEIGHT");
   
   tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(8);
   String blockStr = String(blockHeight);
-  int blockWidth = blockStr.length() * 48;  // Approximate width per char at size 8
+  uint8_t blockTextSize = (blockHeight >= 1000000) ? 7 : 8;
+  tft.setTextSize(blockTextSize);
+  int charWidth = blockTextSize * 6;  // Default TFT font is about 6 px wide per size unit
+  int blockWidth = blockStr.length() * charWidth;
   int blockX = (320 - blockWidth) / 2;  // Center it
+  if (blockX < 0) blockX = 0;
   tft.setCursor(blockX, 85);
   tft.print(blockStr);
   
@@ -1302,6 +1309,61 @@ void drawScreen3() {
   tft.print(priceStr);
 
   drawScreenIndicators();
+}
+
+// Flash a short full-screen alert when a new Bitcoin block arrives.
+void showNewBlockFlash(int newHeight) {
+  int previousScreen = currentScreen;
+
+  Serial.printf("🔔 NEW BLOCK ALERT: %d\n", newHeight);
+
+  // Quick flash pulse to catch the eye without being annoying.
+  for (int i = 0; i < 2; i++) {
+    tft.fillScreen(TFT_GREEN);
+    delay(80);
+    tft.fillScreen(TFT_BLACK);
+    delay(80);
+  }
+
+  tft.fillScreen(TFT_BLACK);
+
+  // Subtle grid background, matching Block Focus feel.
+  for (int x = 0; x < 320; x += 30) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 30) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(3);
+  String title = "NEW BLOCK";
+  int titleWidth = title.length() * 18;
+  tft.setCursor((320 - titleWidth) / 2, 42);
+  tft.print(title);
+
+  tft.setTextColor(TFT_WHITE);
+  String h = String(newHeight);
+  uint8_t alertSize = (newHeight >= 1000000) ? 6 : 7;
+  tft.setTextSize(alertSize);
+  int charWidth = alertSize * 6;
+  int w = h.length() * charWidth;
+  int x = (320 - w) / 2;
+  if (x < 0) x = 0;
+  tft.setCursor(x, 92);
+  tft.print(h);
+
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(2);
+  String subtitle = "BLOCK FOUND";
+  int subtitleWidth = subtitle.length() * 12;
+  tft.setCursor((320 - subtitleWidth) / 2, 170);
+  tft.print(subtitle);
+
+  delay(NEW_BLOCK_HOLD_MS);
+
+  currentScreen = previousScreen;
+  refreshCurrentScreen();
 }
 
 // Refresh current screen with latest data
@@ -1748,10 +1810,9 @@ void setup()
   if (tft.touch()) {
     Serial.println("✅ Touch controller found");
     
-    // Try to calibrate touch (some controllers need this)
-    uint16_t calData[8];
-    tft.setTouchCalibrate(calData);  // Use default calibration
-    Serial.println("🔧 Touch calibration applied");
+    // Touch calibration comes from the LovyanGFX XPT2046 config above.
+    // Do NOT call setTouchCalibrate() with an uninitialized array; it can make touch feel inconsistent.
+    Serial.println("🔧 Touch calibration using configured XPT2046 raw values");
   } else {
     Serial.println("❌ Touch controller NOT found - hardware issue?");
   }
@@ -1845,6 +1906,7 @@ void setup()
       
       fetchHeightFromSatonak();
       lastHeightFetch = millis();
+      lastAnnouncedBlockHeight = blockHeight;  // Establish baseline so boot does not trigger a new-block alert
       delay(500);
       
       fetchMinerFromSatonak();
@@ -2036,14 +2098,26 @@ void loop()
     if (now - lastHeightFetch >= INTERVAL_HEIGHT) {
       if (fetchHeightFromSatonak()) {
         lastHeightFetch = now;
-        
-        // Update displays based on active screen
-        if (currentScreen == 0) {
-          updateBlockHeightDisplay();
-        } else if (currentScreen == 1) {
-          drawScreen2();  // Refresh block focus screen
-        } else if (currentScreen == 2) {
-          drawScreen3();  // Refresh footer with new block
+
+        bool isNewBlock = (lastAnnouncedBlockHeight > 0 && blockHeight > lastAnnouncedBlockHeight);
+        if (blockHeight > 0) {
+          lastAnnouncedBlockHeight = blockHeight;
+        }
+
+        if (isNewBlock) {
+          // Sync miner immediately with the new height so Dashboard and alert feel coordinated.
+          fetchMinerFromSatonak();
+          lastMinerFetch = millis();
+          showNewBlockFlash(blockHeight);
+        } else {
+          // Update displays based on active screen
+          if (currentScreen == 0) {
+            updateBlockHeightDisplay();
+          } else if (currentScreen == 1) {
+            drawScreen2();  // Refresh block focus screen
+          } else if (currentScreen == 2) {
+            drawScreen3();  // Refresh footer with new block
+          }
         }
       }
     }
