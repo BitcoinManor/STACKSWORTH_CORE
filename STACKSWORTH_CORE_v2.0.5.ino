@@ -1,6 +1,6 @@
-//STACKSWORTH_CORE_v2.0.7-newblockalert
-//June 20, 2026
-//Fixed: Faster new-block detection, synced miner refresh before alert, shorter alert hold, miner alignment, touch calibration cleanup
+//STACKSWORTH_CORE_v2.1.0-milestones
+//June 22, 2026
+//Release: Bitcoin Milestones screen, 4-screen carousel, new-block alert, dashboard polish, weather, touch cleanup
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -121,7 +121,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v2.0.7-newblockalert";
+const char* FIRMWARE_VERSION = "v2.1.0-milestones";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -147,6 +147,11 @@ float longitude = 0.0;
 int temperature = 0;
 String weatherCondition = "Unknown";
 bool weatherValid = false;
+
+// 🏁 Bitcoin Milestone Constants
+const int HALVING_INTERVAL = 210000;
+const int ONE_MILLION_BLOCK = 1000000;
+const int ATH_USD_REFERENCE = 111970;  // USD reference for ATH milestone screen; update when a new ATH is confirmed
 
 // ⚙️ Saved Settings
 Preferences prefs;
@@ -192,7 +197,7 @@ bool apMode = false;
 bool apMsgShown = false;
 
 // 📱 Touch Screen Management
-int currentScreen = 0;  // 0=Dashboard, 1=Block Focus, 2=Time Focus
+int currentScreen = 0;  // 0=Dashboard, 1=Block Focus, 2=Time Focus, 3=Bitcoin Milestones
 unsigned long lastTouchTime = 0;
 const unsigned long touchDebounce = 500;  // 500ms debounce
 bool touchDebugMode = false;  // Set to true to see continuous touch status
@@ -883,6 +888,7 @@ void updateBlockHeightDisplay() {
 }
 
 // Update miner name display (bottom-middle dashboard box, single-line left-justified fit)
+// Keep the miner value the same text size as the BLOCK height value for visual consistency.
 void updateMinerDisplay() {
   int barY = 175;
   int minerBoxX = 117;
@@ -895,16 +901,16 @@ void updateMinerDisplay() {
   displayMiner.trim();
   if (displayMiner.length() == 0) displayMiner = "Unknown";
 
-  // Keep miner on one line. Size 2 fits about 11 chars in 132 px; size 1 fits about 22 chars.
-  uint8_t textSize = (displayMiner.length() <= 11) ? 2 : 1;
-  int maxChars = (textSize == 2) ? 11 : 22;
+  // Size 2 matches the BLOCK height value. Truncate long names instead of shrinking them.
+  const uint8_t textSize = 2;
+  const int maxChars = 11;
   if (displayMiner.length() > maxChars) {
     displayMiner = displayMiner.substring(0, maxChars - 1) + ".";
   }
 
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(textSize);
-  tft.setCursor(minerBoxX, (textSize == 2) ? barY + 24 : barY + 29);
+  tft.setCursor(minerBoxX, barY + 24);
   tft.print(displayMiner);
 
   Serial.println("⛏️ Updated miner display: " + displayMiner);
@@ -983,14 +989,14 @@ void updateDateTimeDisplay() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//   SCREEN DRAWING FUNCTIONS (3-Screen Carousel)
+//   SCREEN DRAWING FUNCTIONS (4-Screen Carousel)
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Draw screen indicator dots at bottom with footer text
 void drawScreenIndicators() {
   int dotY = 228;
   int dotSpacing = 20;
-  int startX = 255;  // Move dots to the right side
+  int startX = 240;  // Move dots to the right side
   
   // Footer text on left
   tft.setTextColor(0x528A);  // Dim gray
@@ -999,7 +1005,7 @@ void drawScreenIndicators() {
   tft.print("Built By BitcoinManor.com");
   
   // Dots on right
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 4; i++) {
     int dotX = startX + (i * dotSpacing);
     uint16_t color = (i == currentScreen) ? TFT_ORANGE : 0x4208;  // Orange for active, dim gray for inactive
     tft.fillCircle(dotX, dotY, 3, color);
@@ -1311,6 +1317,138 @@ void drawScreen3() {
   drawScreenIndicators();
 }
 
+
+// Screen 4: Bitcoin Milestones - Halving, 1M blocks, ATH reference
+void drawScreen4() {
+  tft.fillScreen(TFT_BLACK);
+
+  // Subtle vertical/horizontal grid pattern
+  for (int x = 0; x < 320; x += 25) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 25) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+
+  // Logo and header
+  int logoHexX = 25;
+  int logoHexY = 12;
+  int logoHexSize = 10;
+
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+  }
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(1);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
+  tft.print("S");
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(45, 8);
+  tft.print("BITCOIN MILESTONES");
+
+  int safeHeight = blockHeight;
+  if (safeHeight < 1) safeHeight = 0;
+
+  int nextHalvingBlock = ((safeHeight / HALVING_INTERVAL) + 1) * HALVING_INTERVAL;
+  int blocksToHalving = nextHalvingBlock - safeHeight;
+  if (safeHeight == 0) blocksToHalving = 0;
+
+  int blocksToMillion = ONE_MILLION_BLOCK - safeHeight;
+  if (blocksToMillion < 0) blocksToMillion = 0;
+
+  // Section 1: Next Halving
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(12, 34);
+  tft.print("NEXT HALVING");
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  String halvingStr = (safeHeight > 0) ? formatWithCommas(blocksToHalving) : "SYNCING";
+  int halvingWidth = halvingStr.length() * 18;
+  int halvingX = (320 - halvingWidth) / 2;
+  if (halvingX < 5) halvingX = 5;
+  tft.setCursor(halvingX, 58);
+  tft.print(halvingStr);
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(1);
+  String halvingLabel = "BLOCKS TO BLOCK " + formatWithCommas(nextHalvingBlock);
+  int halvingLabelWidth = halvingLabel.length() * 6;
+  int halvingLabelX = (320 - halvingLabelWidth) / 2;
+  if (halvingLabelX < 5) halvingLabelX = 5;
+  tft.setCursor(halvingLabelX, 88);
+  tft.print(halvingLabel);
+
+  tft.drawLine(10, 102, 310, 102, TFT_ORANGE);
+
+  // Section 2: One Million Blocks
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  tft.setCursor(12, 112);
+  tft.print("1 MILLION BLOCKS");
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  String millionStr = (safeHeight > 0) ? formatWithCommas(blocksToMillion) : "SYNCING";
+  int millionWidth = millionStr.length() * 18;
+  int millionX = (320 - millionWidth) / 2;
+  if (millionX < 5) millionX = 5;
+  tft.setCursor(millionX, 136);
+  tft.print(millionStr);
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  String millionLabel = (blocksToMillion == 0 && safeHeight > 0) ? "MILESTONE REACHED" : "BLOCKS TO GO";
+  int millionLabelWidth = millionLabel.length() * 6;
+  int millionLabelX = (320 - millionLabelWidth) / 2;
+  if (millionLabelX < 5) millionLabelX = 5;
+  tft.setCursor(millionLabelX, 166);
+  tft.print(millionLabel);
+
+  tft.drawLine(10, 180, 310, 180, TFT_CYAN);
+
+  // Section 3: ATH reference. Current price comparison is only valid when USD is selected.
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(1);
+  tft.setCursor(12, 190);
+  tft.print("ATH REF");
+
+  if (savedCurrency == "USD" && btcPrice > 0) {
+    int away = ATH_USD_REFERENCE - btcPrice;
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(12, 204);
+    if (away > 0) {
+      tft.print(getCurrencySymbol() + formatWithCommas(away));
+      tft.setTextSize(1);
+      tft.setCursor(120, 209);
+      tft.print("AWAY");
+    } else {
+      tft.setTextColor(TFT_GREEN);
+      tft.print("NEW ATH!");
+    }
+  } else {
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(12, 204);
+    tft.print("$" + formatWithCommas(ATH_USD_REFERENCE));
+    tft.setTextSize(1);
+    tft.setCursor(140, 209);
+    tft.print("USD");
+  }
+
+  drawScreenIndicators();
+}
+
 // Flash a short full-screen alert when a new Bitcoin block arrives.
 void showNewBlockFlash(int newHeight) {
   int previousScreen = currentScreen;
@@ -1377,6 +1515,9 @@ void refreshCurrentScreen() {
       break;
     case 2:
       drawScreen3();
+      break;
+    case 3:
+      drawScreen4();
       break;
   }
 }
@@ -1985,7 +2126,7 @@ void loop()
       lastTouchTime = now;
       touchWasDown = true;
 
-      currentScreen = (currentScreen + 1) % 3;
+      currentScreen = (currentScreen + 1) % 4;
       Serial.printf("📱 Touch ACCEPTED! Coordinates: (%d, %d) -> Switching to screen %d\n", touchX, touchY, currentScreen);
       refreshCurrentScreen();
     }
@@ -2090,11 +2231,13 @@ void loop()
           updateSatsPerDollarDisplay();
         } else if (currentScreen == 2) {
           drawScreen3();  // Refresh footer with new price
+        } else if (currentScreen == 3) {
+          drawScreen4();  // Refresh ATH/milestones with new price
         }
       }
     }
     
-    // Fetch block height every 2 minutes
+    // Fetch block height every 30 seconds
     if (now - lastHeightFetch >= INTERVAL_HEIGHT) {
       if (fetchHeightFromSatonak()) {
         lastHeightFetch = now;
@@ -2117,6 +2260,8 @@ void loop()
             drawScreen2();  // Refresh block focus screen
           } else if (currentScreen == 2) {
             drawScreen3();  // Refresh footer with new block
+          } else if (currentScreen == 3) {
+            drawScreen4();  // Refresh halving / 1M countdown with new block
           }
         }
       }
