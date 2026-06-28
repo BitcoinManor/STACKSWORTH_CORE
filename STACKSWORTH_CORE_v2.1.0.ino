@@ -1,6 +1,6 @@
-//STACKSWORTH_CORE_v2.1.0-milestones
-//June 22, 2026
-//Release: Bitcoin Milestones screen, 4-screen carousel, new-block alert, dashboard polish, weather, touch cleanup
+//STACKSWORTH_CORE_v2.1.3-milestones-clean
+//June 26, 2026
+//Release Candidate: Clean Bitcoin Milestones screen with Halving + 1 Million Blocks only; ATH removed for launch-day clarity
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -121,7 +121,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v2.1.0-milestones";
+const char* FIRMWARE_VERSION = "v2.1.3-milestones-clean";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -1318,7 +1318,7 @@ void drawScreen3() {
 }
 
 
-// Screen 4: Bitcoin Milestones - Halving, 1M blocks, ATH reference
+// Screen 4: Bitcoin Milestones - Halving countdown + 1 Million Blocks countdown
 void drawScreen4() {
   tft.fillScreen(TFT_BLACK);
 
@@ -1364,42 +1364,43 @@ void drawScreen4() {
   int blocksToMillion = ONE_MILLION_BLOCK - safeHeight;
   if (blocksToMillion < 0) blocksToMillion = 0;
 
-  // Section 1: Next Halving
+  // -------------------------------------------------------------
+  // Top metric: Next Halving
+  // -------------------------------------------------------------
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(2);
-  tft.setCursor(12, 34);
-  tft.print("NEXT HALVING");
+  String halvingTitle = "NEXT HALVING";
+  int halvingTitleWidth = halvingTitle.length() * 12;
+  tft.setCursor((320 - halvingTitleWidth) / 2, 36);
+  tft.print(halvingTitle);
 
   tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(3);
-  String halvingStr = (safeHeight > 0) ? formatWithCommas(blocksToHalving) : "SYNCING";
-  int halvingWidth = halvingStr.length() * 18;
+  tft.setTextSize(4);
+  String halvingStr = (safeHeight > 0) ? formatWithCommas(blocksToHalving) : "SYNC";
+  int halvingWidth = halvingStr.length() * 24;
   int halvingX = (320 - halvingWidth) / 2;
   if (halvingX < 5) halvingX = 5;
-  tft.setCursor(halvingX, 58);
+  tft.setCursor(halvingX, 62);
   tft.print(halvingStr);
 
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(1);
-  String halvingLabel = "BLOCKS TO BLOCK " + formatWithCommas(nextHalvingBlock);
+  String halvingLabel = (safeHeight > 0) ? "BLOCKS TO BLOCK " + formatWithCommas(nextHalvingBlock) : "WAITING FOR BLOCK HEIGHT";
   int halvingLabelWidth = halvingLabel.length() * 6;
   int halvingLabelX = (320 - halvingLabelWidth) / 2;
   if (halvingLabelX < 5) halvingLabelX = 5;
-  tft.setCursor(halvingLabelX, 88);
+  tft.setCursor(halvingLabelX, 104);
   tft.print(halvingLabel);
 
-  tft.drawLine(10, 102, 310, 102, TFT_ORANGE);
+  tft.drawLine(18, 123, 302, 123, TFT_ORANGE);
 
-  // Section 2: One Million Blocks
-  tft.setTextColor(TFT_CYAN);
-  tft.setTextSize(2);
-  tft.setCursor(12, 112);
-  tft.print("1 MILLION BLOCKS");
-
+  // -------------------------------------------------------------
+  // Bottom metric: 1 Million Blocks
+  // -------------------------------------------------------------
   tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(3);
-  String millionStr = (safeHeight > 0) ? formatWithCommas(blocksToMillion) : "SYNCING";
-  int millionWidth = millionStr.length() * 18;
+  tft.setTextSize(4);
+  String millionStr = (safeHeight > 0) ? formatWithCommas(blocksToMillion) : "SYNC";
+  int millionWidth = millionStr.length() * 24;
   int millionX = (320 - millionWidth) / 2;
   if (millionX < 5) millionX = 5;
   tft.setCursor(millionX, 136);
@@ -1407,44 +1408,19 @@ void drawScreen4() {
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(1);
-  String millionLabel = (blocksToMillion == 0 && safeHeight > 0) ? "MILESTONE REACHED" : "BLOCKS TO GO";
-  int millionLabelWidth = millionLabel.length() * 6;
-  int millionLabelX = (320 - millionLabelWidth) / 2;
-  if (millionLabelX < 5) millionLabelX = 5;
-  tft.setCursor(millionLabelX, 166);
-  tft.print(millionLabel);
+  String toLabel = (blocksToMillion == 0 && safeHeight > 0) ? "MILESTONE REACHED" : "TO";
+  int toWidth = toLabel.length() * 6;
+  tft.setCursor((320 - toWidth) / 2, 178);
+  tft.print(toLabel);
 
-  tft.drawLine(10, 180, 310, 180, TFT_CYAN);
-
-  // Section 3: ATH reference. Current price comparison is only valid when USD is selected.
-  tft.setTextColor(TFT_GREEN);
-  tft.setTextSize(1);
-  tft.setCursor(12, 190);
-  tft.print("ATH REF");
-
-  if (savedCurrency == "USD" && btcPrice > 0) {
-    int away = ATH_USD_REFERENCE - btcPrice;
-    tft.setTextColor(TFT_WHITE);
-    tft.setTextSize(2);
-    tft.setCursor(12, 204);
-    if (away > 0) {
-      tft.print(getCurrencySymbol() + formatWithCommas(away));
-      tft.setTextSize(1);
-      tft.setCursor(120, 209);
-      tft.print("AWAY");
-    } else {
-      tft.setTextColor(TFT_GREEN);
-      tft.print("NEW ATH!");
-    }
-  } else {
-    tft.setTextColor(TFT_WHITE);
-    tft.setTextSize(2);
-    tft.setCursor(12, 204);
-    tft.print("$" + formatWithCommas(ATH_USD_REFERENCE));
-    tft.setTextSize(1);
-    tft.setCursor(140, 209);
-    tft.print("USD");
-  }
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  String millionTitle = "1 MILLION BLOCKS";
+  int millionTitleWidth = millionTitle.length() * 12;
+  int millionTitleX = (320 - millionTitleWidth) / 2;
+  if (millionTitleX < 5) millionTitleX = 5;
+  tft.setCursor(millionTitleX, 192);
+  tft.print(millionTitle);
 
   drawScreenIndicators();
 }
