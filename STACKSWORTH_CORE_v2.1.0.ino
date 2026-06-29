@@ -1,6 +1,30 @@
-//STACKSWORTH_CORE_v2.1.3-milestones-clean
-//June 26, 2026
-//Release Candidate: Clean Bitcoin Milestones screen with Halving + 1 Million Blocks only; ATH removed for launch-day clarity
+/*****************************************************************
+ *
+ *  STACKSWORTH CORE
+ *  Firmware Version : v2.1.4
+ *  Release Name     : SAT Market Release
+ *
+ *  Release Date     : June 26, 2026
+ *
+ *  Included in v2.1.4
+ *  ------------------------------------------------------------
+ *  - Dashboard layout polished
+ *  - Block and Miner moved to bottom bar
+ *  - Currency indicator on Dashboard
+ *  - Time Focus weather improvements
+ *  - Improved touch navigation
+ *  - New Block celebration screen
+ *  - Bitcoin Milestones screen
+ *      - Next Halving countdown
+ *      - Blocks to 1,000,000
+ *  - Setup portal improvements
+ *      - core.local reminder
+ *      - Portal message after WiFi connects
+ *
+ *  Bitcoin Manor / STACKSWORTH CORE
+ *  Where Data Comes to Life.
+ *
+ *****************************************************************/
 
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
@@ -121,7 +145,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "v2.1.3-milestones-clean";
+const char* FIRMWARE_VERSION = "v2.1.4-sat-market";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -1636,13 +1660,21 @@ void startAccessPoint() {
   tft.setTextSize(1);
   tft.setCursor(25, 180);
   tft.print("Portal will auto-open.");
-  tft.setCursor(25, 193);
-  tft.print("If not, please visit:");
-  
+
   tft.setTextColor(TFT_ORANGE);
-  tft.setTextSize(2);
-  tft.setCursor(65, 208);
+  tft.setCursor(45, 193);
+  tft.print("Setup: ");
   tft.print(myIP.toString());
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  tft.setCursor(75, 207);
+  tft.print("core.local");
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(1);
+  tft.setCursor(82, 222);
+  tft.print("After setup");
   
   // Footer
   tft.setTextColor(0x528A);  // Dim gray
@@ -1695,7 +1727,13 @@ void connectWiFi()
     tft.setTextSize(2);
     tft.setCursor(80, 160);
     tft.print("Connected!");
-    delay(1000);
+
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(1);
+    tft.setCursor(72, 185);
+    tft.print("Portal: core.local");
+
+    delay(1800);
     
     // Update indicator if main UI is already shown
     if (initialSetupDone)
@@ -1966,7 +2004,7 @@ void setup()
   
   // CORE below on its own line
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(240, splashY + 18);
+  tft.setCursor(220, splashY + 18);
   tft.print("CORE");
   
   delay(1500);  // Show splash for 1.5 seconds
