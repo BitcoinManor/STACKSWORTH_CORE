@@ -16,6 +16,7 @@ Sanded and stained the 1st 3 units to display our 3 wood species. Milled more Bl
 - 🧠 Smart data caching for stability  
 - 🎨 Clean UI optimized for small displays  
 - 🪵 Optional premium wood enclosure (Black Walnut with  options for face plate. African Mahogany, Purple Heart, or Orange Padauk)
+RETAIL $109USD or $149 for Premium Wood Case
 
 ---
 
