@@ -1,6 +1,7 @@
 o# 🟠 STACKSWORTH CORE
 
 **Where Data Comes To Life.**
+**Bitcoin’s Pulse at a Glance!**
 
 The STACKSWORTH CORE is a compact Bitcoin display designed to bring essential Bitcoin data to life in a clean, accessible format. We will be starting the release with 4 screens to go back and forth to voew the different metrics. and they will be interchangeable with future screens available in the web portal.***BUILDING CURRENTLY, Day 41. Just ordered 12 boxes that we custom made using Vista Print.
 July 24th arrival.
