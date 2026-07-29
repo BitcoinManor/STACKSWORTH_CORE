@@ -13,6 +13,7 @@ Sanded and stained the 1st 3 units to display our 3 wood species. Milled more Bl
 Will check for other options or a good recycled product for fill. 
 We're headed to Vancouver for the Block Partu.
 hoping to sell 30 units of the book and the CORE.  Just ordered Quick Guide Inserts.  Worked with Claude to create schedule to have enough Units built for Vancouver.  Just ordered 12 more 2.8" LCD ESP32  units to get started building. CYD's coming Wednesday 29th with 3 power adaptor 
+Sanded tonight and ran the cnc for ome base
 ---
 
 ## 🔥 Features
