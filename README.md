@@ -15,7 +15,7 @@ We're headed to Vancouver for the Block Partu.
 hoping to sell 30 units of the book and the CORE.  Just ordered Quick Guide Inserts.  Worked with Claude to create schedule to have enough Units built for Vancouver.  Just ordered 12 more 2.8" LCD ESP32  units to get started building. CYD's coming Wednesday 29th with 3 power adaptor 
 Sanded tonight and ran the cnc for ome base
 Finished sanding 4 cases and stained them. 12 LCD units did arrive. CNC milled 2 more cases.
-Making sure OTA is already to go before we send these units out
+Making sure OTA is already to go before we send these units out.  Finished 6 more CORE bases amd stained them.
 ---
 
 ## 🔥 Features
