@@ -137,10 +137,10 @@ The premium STACKSWORTH CORE enclosure is CNC milled, sanded, stained, and finis
 The current hardwood configuration uses:
 
 - Black Walnut rear enclosure
-- Black Walnut faceplate
 - Orange Padauk faceplate
 - African Mahogany faceplate
 - Purpleheart faceplate
+- Special Edition Zebra Faceplate
 
 Natural colour and grain variation make every hardwood CORE unique.
 
