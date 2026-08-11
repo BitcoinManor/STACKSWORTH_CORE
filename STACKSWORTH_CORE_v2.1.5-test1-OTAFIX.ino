@@ -1,0 +1,2323 @@
+/*****************************************************************
+ *
+ *  STACKSWORTH CORE
+ *  Firmware Version : v2.1.5-test1-OTAFIX
+ *  Release Name     : OTA TESTING
+ *
+ *  Release Date     : August 8, 2026
+ *
+ *  Included in v2.1.5-test1-OTAFIX
+ *  ------------------------------------------------------------
+ *  - OTA update support for firmware updates
+ *  - New "OTA TESTING" release channel for beta testers
+ * 
+ *
+ *  Bitcoin Manor / STACKSWORTH CORE
+ *  Where Data Comes to Life.
+ *
+ *****************************************************************/
+
+#include <LovyanGFX.hpp>
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <Preferences.h>
+#include <FS.h>
+#include <SPIFFS.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include <Update.h>
+#include "esp_wifi.h"
+#include <DNSServer.h>
+#include <time.h>
+
+DNSServer dnsServer;
+
+
+class LGFX : public lgfx::LGFX_Device
+{
+  lgfx::Panel_ILI9341 _panel_instance;
+  lgfx::Bus_SPI _bus_instance;
+  lgfx::Light_PWM _light_instance;
+  lgfx::Touch_XPT2046 _touch_instance;
+
+public:
+
+  LGFX(void)
+  {
+    {
+      auto cfg = _bus_instance.config();
+
+      cfg.spi_host = VSPI_HOST;
+      cfg.spi_mode = 0;
+      cfg.freq_write = 40000000;
+      cfg.freq_read = 16000000;
+      cfg.spi_3wire = false;
+      cfg.use_lock = true;
+      cfg.dma_channel = SPI_DMA_CH_AUTO;
+
+      cfg.pin_sclk = 14;
+      cfg.pin_mosi = 13;
+      cfg.pin_miso = 12;
+      cfg.pin_dc   = 2;
+
+      _bus_instance.config(cfg);
+      _panel_instance.setBus(&_bus_instance);
+    }
+
+    {
+      auto cfg = _panel_instance.config();
+
+      cfg.pin_cs           = 15;
+      cfg.pin_rst          = -1;
+      cfg.pin_busy         = -1;
+
+      cfg.panel_width      = 240;
+      cfg.panel_height     = 320;
+      cfg.offset_x         = 0;
+      cfg.offset_y         = 0;
+      cfg.offset_rotation  = 0;
+
+      cfg.dummy_read_pixel = 8;
+      cfg.dummy_read_bits  = 1;
+
+      cfg.readable         = false;
+      cfg.invert           = false;
+      cfg.rgb_order        = false;
+      cfg.dlen_16bit       = false;
+      cfg.bus_shared       = true;
+
+      _panel_instance.config(cfg);
+    }
+
+    {
+      auto cfg = _light_instance.config();
+
+      cfg.pin_bl = 21;
+      cfg.invert = false;
+      cfg.freq   = 44100;
+      cfg.pwm_channel = 7;
+
+      _light_instance.config(cfg);
+      _panel_instance.setLight(&_light_instance);
+    }
+
+    {
+      auto cfg = _touch_instance.config();
+
+      // XPT2046 touch controller raw calibration values.
+      // These are raw ADC values, not screen pixel dimensions.
+      cfg.x_min      = 280;
+      cfg.x_max      = 3860;
+      cfg.y_min      = 340;
+      cfg.y_max      = 3860;
+
+      cfg.pin_int    = 36;     // TOUCH_IRQ
+      cfg.bus_shared = false;  // Touch is NOT on the TFT SPI pins on this board
+      cfg.offset_rotation = 1; // Match display rotation (landscape)
+
+      // STACKSWORTH CORE / CYD 2.8 touch pins
+      cfg.spi_host = HSPI_HOST;
+      cfg.freq = 1000000;
+      cfg.pin_sclk = 25;  // TOUCH_CLK
+      cfg.pin_mosi = 32;  // TOUCH_DIN / MOSI
+      cfg.pin_miso = 39;  // TOUCH_DO / MISO
+      cfg.pin_cs   = 33;  // TOUCH_CS
+
+      _touch_instance.config(cfg);
+      _panel_instance.setTouch(&_touch_instance);
+    }
+
+    setPanel(&_panel_instance);
+  }
+};
+
+LGFX tft;
+
+// 🌍 API Endpoints & Configuration
+const char* FIRMWARE_VERSION = "2.1.5-test1-OTAFIX";
+const char* FIRMWARE_CHANNEL = "OTA TESTING";  // Used for OTA update checks. Change to "STABLE" for production releases
+const char* DEVICE_MODEL = "CORE";
+const char* FIRMWARE_RELEASE_DATE = "August 8, 2026";
+const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
+const char* SATONAK_PRICE = "/api/price";
+const char* SATONAK_HEIGHT = "/api/height";
+const char* SATONAK_MINER = "/api/miner";
+const char* SATONAK_FEE = "/api/fee";
+const char* SATONAK_CHANGE24H = "/api/change24h";
+const char* SATONAK_MARKETCAP = "/api/marketcap";
+const char* SATONAK_SUPPLY = "/api/circsupply";
+const char* UPDATE_URL = "https://satonak.bitcoinmanor.com/firmware/stacksworth-core.bin";
+const char* VERSION_CHECK_URL = "https://satonak.bitcoinmanor.com/api/version";
+
+// 📊 Global Data Variables
+int btcPrice = 0;
+int blockHeight = 0;
+int feeRate = 0;
+int satsPerDollar = 0;
+float btcChange24h = 0.0;
+String minerName = "Unknown";
+String marketCap = "Unknown";
+String circSupply = "Unknown";
+float latitude = 0.0;
+float longitude = 0.0;
+int temperature = 0;
+String weatherCondition = "Unknown";
+bool weatherValid = false;
+
+// 🏁 Bitcoin Milestone Constants
+const int HALVING_INTERVAL = 210000;
+const int ONE_MILLION_BLOCK = 1000000;
+const int ATH_USD_REFERENCE = 111970;  // USD reference for ATH milestone screen; update when a new ATH is confirmed
+
+// ⚙️ Saved Settings
+Preferences prefs;
+AsyncWebServer server(80);
+volatile bool otaRequested = false;
+
+String savedSSID = "";
+String savedPassword = "";
+String savedCity = "";
+String savedCurrency = "USD";
+String savedTempUnit = "F";
+String savedDeviceName = "";
+uint8_t savedBrightness = 128;
+int savedTimezone = 11;  // Portal timezone index. Default Mountain (Calgary)
+bool displayEnabled[12] = {true, true, false, true, false, false, false, false, true, false, true, true}; // Default metrics
+
+// 🔄 Fetch Intervals (milliseconds) - Prioritized for importance
+const unsigned long INTERVAL_HEIGHT = 30UL * 1000UL;            // 30 sec for tighter new-block alert timing
+const unsigned long INTERVAL_MINER = 2UL * 60UL * 1000UL;      // 2 min (PRIORITY 1: Tied to block)
+const unsigned long INTERVAL_PRICE = 5UL * 60UL * 1000UL;      // 5 min (PRIORITY 2)
+const unsigned long INTERVAL_FEE = 10UL * 60UL * 1000UL;       // 10 min
+const unsigned long INTERVAL_CHANGE24H = 30UL * 60UL * 1000UL; // 30 min (rate limited)
+const unsigned long INTERVAL_WEATHER = 30UL * 60UL * 1000UL;   // 30 min, same as Matrix
+const unsigned long INTERVAL_TIME = 60UL * 1000UL;             // 1 min (internal clock)
+const unsigned long INTERVAL_NTP_SYNC = 30UL * 60UL * 1000UL;  // 30 min (prevent drift)
+
+unsigned long lastPriceFetch = 0;
+unsigned long lastHeightFetch = 0;
+unsigned long lastMinerFetch = 0;
+unsigned long lastFeeFetch = 0;
+unsigned long lastChange24hFetch = 0;
+unsigned long lastWeatherFetch = 0;
+unsigned long lastTimeUpdate = 0;
+unsigned long lastNtpSync = 0;
+
+// 🔔 New Block Alert State
+int lastAnnouncedBlockHeight = 0;
+const unsigned long NEW_BLOCK_HOLD_MS = 2500;
+
+// 🆔 Device MAC ID
+String macID = "";
+
+// 🌐 AP Mode flags
+bool apMode = false;
+bool apMsgShown = false;
+
+// 📱 Touch Screen Management
+int currentScreen = 0;  // 0=Dashboard, 1=Block Focus, 2=Time Focus, 3=Bitcoin Milestones
+unsigned long lastTouchTime = 0;
+const unsigned long touchDebounce = 500;  // 500ms debounce
+bool touchDebugMode = false;  // Set to true to see continuous touch status
+bool touchWasDown = false;   // Edge-trigger touch so one press = one screen change
+
+// 🌍 Timezone configuration (same as Matrix.ino)
+const char *ntpServer = "pool.ntp.org";
+const char* TIMEZONE_STRINGS[] = {
+  "UTC0",                                    // UTC +0
+  "GMT0BST,M3.5.0/1,M10.5.0",              // London +0/+1
+  "CET-1CEST,M3.5.0,M10.5.0/3",            // Paris/Berlin +1/+2
+  "EET-2EEST,M3.5.0/3,M10.5.0/4",          // Helsinki +2/+3
+  "MSK-3",                                  // Moscow +3 (no DST)
+  "JST-9",                                  // Tokyo +9 (no DST)
+  "AEST-10AEDT,M10.1.0,M4.1.0/3",          // Sydney +10/+11
+  "NZST-12NZDT,M9.5.0,M4.1.0/3",           // Auckland +12/+13
+  "HST10",                                  // Hawaii -10 (no DST)
+  "AKST9AKDT,M3.2.0,M11.1.0",              // Alaska -9/-8
+  "PST8PDT,M3.2.0,M11.1.0",                // Pacific -8/-7
+  "MST7MDT,M3.2.0,M11.1.0",                // Mountain -7/-6 (Calgary!)
+  "CST6CDT,M3.2.0,M11.1.0",                // Central -6/-5
+  "EST5EDT,M3.2.0,M11.1.0"                 // Eastern -5/-4
+};
+
+const char* TIMEZONE_NAMES[] = {
+  "UTC (+0)", "London (+0/+1)", "Paris (+1/+2)", "Helsinki (+2/+3)",
+  "Moscow (+3)", "Tokyo (+9)", "Sydney (+10/+11)", "Auckland (+12/+13)",
+  "Hawaii (-10)", "Alaska (-9/-8)", "Pacific (-8/-7)", "Mountain (-7/-6)",
+  "Central (-6/-5)", "Eastern (-5/-4)"
+};
+
+#define NUM_TIMEZONES (sizeof(TIMEZONE_STRINGS) / sizeof(TIMEZONE_STRINGS[0]))
+
+
+String mapWeatherCode(int code)
+{
+  if (code == 0) return "Sunny";
+  else if (code == 1) return "Mostly Sunny";
+  else if (code == 2) return "Partly Cloudy";
+  else if (code == 3) return "Cloudy";
+  else if (code >= 45 && code <= 48) return "Foggy";
+  else if (code >= 51 && code <= 57) return "Drizzle";
+  else if (code >= 61 && code <= 67) return "Rain";
+  else if (code >= 71 && code <= 77) return "Snowy";
+  else if (code >= 80 && code <= 82) return "Showers";
+  else if (code >= 85 && code <= 86) return "Snow Showers";
+  else if (code >= 95 && code <= 99) return "Thunderstorm";
+  return "Unknown";
+}
+
+
+int getTimezoneIndex() {
+  // Current portal saves indexes 0-13. Older builds saved UTC offsets, so keep compatibility.
+  if (savedTimezone >= 0 && savedTimezone < (int)NUM_TIMEZONES) return savedTimezone;
+  if (savedTimezone == -10) return 8;
+  if (savedTimezone == -9) return 9;
+  if (savedTimezone == -8) return 10;
+  if (savedTimezone == -7) return 11;
+  if (savedTimezone == -6) return 12;
+  if (savedTimezone == -5) return 13;
+  return 11; // Mountain default
+}
+
+void applyTimezone() {
+  int tzIndex = getTimezoneIndex();
+  configTzTime(TIMEZONE_STRINGS[tzIndex], ntpServer);
+  Serial.printf("🕒 Timezone configured: %s (%s)\n", TIMEZONE_NAMES[tzIndex], TIMEZONE_STRINGS[tzIndex]);
+  lastNtpSync = millis();
+}
+
+// Get short MAC address for device identification
+String getShortMAC() {
+  uint8_t mac[6];
+  esp_wifi_get_mac(WIFI_IF_STA, mac);
+  char shortID[7];
+  sprintf(shortID, "%02X%02X%02X", mac[3], mac[4], mac[5]);
+  return String(shortID);
+}
+
+// Get currency symbol based on saved currency
+String getCurrencySymbol() {
+  if (savedCurrency == "USD") return "$";
+  if (savedCurrency == "CAD") return "$";
+  if (savedCurrency == "EUR") return "€";
+  if (savedCurrency == "GBP") return "£";
+  if (savedCurrency == "JPY") return "¥";
+  if (savedCurrency == "AUD") return "$";
+  if (savedCurrency == "CHF") return "Fr";
+  if (savedCurrency == "CNY") return "¥";
+  if (savedCurrency == "SEK") return "kr";
+  if (savedCurrency == "NOK") return "kr";
+  return "$";
+}
+
+// Format number with commas (e.g., 67842 -> "67,842")
+String formatWithCommas(int number) {
+  String numStr = String(number);
+  String result = "";
+  int len = numStr.length();
+  for (int i = 0; i < len; i++) {
+    if (i > 0 && (len - i) % 3 == 0) {
+      result += ",";
+    }
+    result += numStr[i];
+  }
+  return result;
+}
+
+bool wifiConnected = false;
+bool initialSetupDone = false;
+unsigned long lastWiFiCheck = 0;
+const unsigned long wifiCheckInterval = 5000; // Check every 5 seconds
+
+// 🕐 DST Detection Function (North American rules)
+// DST starts: Second Sunday in March at 2:00 AM
+// DST ends: First Sunday in November at 2:00 AM
+bool isDST(int month, int day, int dayOfWeek) {
+  // No DST in Jan, Feb, Dec
+  if (month < 3 || month > 11) return false;
+  // DST always active Apr-Oct
+  if (month > 3 && month < 11) return true;
+  
+  // Calculate for March and November
+  int previousSunday = day - dayOfWeek;
+  
+  // In March, DST starts on second Sunday (day 8-14)
+  if (month == 3) {
+    return previousSunday >= 8;
+  }
+  
+  // In November, DST ends on first Sunday (day 1-7)
+  if (month == 11) {
+    return previousSunday < 1;
+  }
+  
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🌐 SATONAK API FETCH FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 💰 Fetch Bitcoin Price from SATONAK
+bool fetchPriceFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_PRICE) + "?fiat=" + savedCurrency;
+  
+  Serial.print("📊 Fetching price from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Price response: " + payload);
+    
+    // API returns raw number, not JSON
+    payload.trim();
+    btcPrice = (int)payload.toFloat();
+    
+    if (btcPrice > 0) {
+      satsPerDollar = (int)(100000000.0 / btcPrice);
+      Serial.printf("💰 Price: %s%d | Sats/$: %d\n", getCurrencySymbol().c_str(), btcPrice, satsPerDollar);
+      http.end();
+      return true;
+    } else {
+      Serial.println("❌ Price is 0 or invalid");
+    }
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// 📦 Fetch Block Height from SATONAK
+bool fetchHeightFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_HEIGHT);
+  
+  Serial.print("📦 Fetching height from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Height response: " + payload);
+    
+    // API returns raw number, not JSON
+    payload.trim();
+    blockHeight = payload.toInt();
+    
+    if (blockHeight > 0) {
+      Serial.printf("📦 Block Height: %d\n", blockHeight);
+      http.end();
+      return true;
+    } else {
+      Serial.println("❌ Block height is 0 or invalid");
+    }
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// ⛏️ Fetch Miner Name from SATONAK
+bool fetchMinerFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_MINER);
+  
+  Serial.print("⛏️ Fetching miner from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Miner response: " + payload);
+    
+    // API returns raw text, not JSON
+    payload.trim();
+    if (payload.length() > 0) {
+      minerName = payload;
+      Serial.println("⛏️ Miner: " + minerName);
+      http.end();
+      return true;
+    } else {
+      Serial.println("❌ Miner name is empty");
+    }
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// ⚡ Fetch Fee Rate from SATONAK
+bool fetchFeeFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_FEE);
+  
+  Serial.print("⚡ Fetching fee from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Fee response: " + payload);
+    
+    // API returns raw number, not JSON
+    payload.trim();
+    feeRate = payload.toInt();
+    
+    if (feeRate > 0) {
+      Serial.printf("⚡ Fee: %d sat/vB\n", feeRate);
+      http.end();
+      return true;
+    } else {
+      Serial.println("❌ Fee rate is 0 or invalid");
+    }
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// 📈 Fetch 24H Change from SATONAK
+bool fetchChange24hFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_CHANGE24H) + "?fiat=" + savedCurrency;
+  
+  Serial.print("📈 Fetching 24h change from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Change response: " + payload);
+    
+    // Check if response is an error (JSON with "error" field)
+    if (payload.indexOf("error") >= 0) {
+      Serial.println("⚠️ API returned error (likely rate limited)");
+      http.end();
+      return false;
+    }
+    
+    // API returns raw number when successful
+    payload.trim();
+    btcChange24h = payload.toFloat();
+    
+    Serial.printf("📈 24H Change: %.2f%%\n", btcChange24h);
+    http.end();
+    return true;
+  } else if (httpCode == 429) {
+    Serial.println("⚠️ Rate limited (429) - will retry later");
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// 💼 Fetch Market Cap from SATONAK
+bool fetchMarketCapFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_MARKETCAP) + "?fiat=" + savedCurrency;
+  
+  Serial.print("💼 Fetching market cap from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Market cap response: " + payload);
+    
+    payload.trim();
+    
+    // Check if it's an error response
+    if (payload.indexOf("error") >= 0 || payload == "na") {
+      Serial.println("⚠️ Market cap endpoint unavailable");
+      http.end();
+      return false;
+    }
+    
+    if (payload.length() > 0) {
+      marketCap = payload;
+      Serial.println("💼 Market Cap: " + marketCap);
+      http.end();
+      return true;
+    }
+  } else if (httpCode == 404) {
+    Serial.println("⚠️ Market cap endpoint not found (404) - may not be implemented");
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// 📊 Fetch Circulating Supply from SATONAK
+bool fetchSupplyFromSatonak() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  HTTPClient http;
+  String url = String(SATONAK_BASE) + String(SATONAK_SUPPLY);
+  
+  Serial.print("📊 Fetching supply from SATONAK: ");
+  Serial.println(url);
+  
+  http.begin(url);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    Serial.println("✅ Supply response: " + payload);
+    
+    payload.trim();
+    
+    // Check if it's an error response
+    if (payload.indexOf("error") >= 0 || payload == "na") {
+      Serial.println("⚠️ Supply endpoint unavailable");
+      http.end();
+      return false;
+    }
+    
+    // Remove commas for validation
+    String cleanPayload = payload;
+    cleanPayload.replace(",", "");
+    long supplyVal = cleanPayload.toInt();
+    
+    // Sanity check: should be between 0 and 21M
+    if (supplyVal > 0 && supplyVal <= 21000000) {
+      circSupply = payload;  // Keep commas for display
+      Serial.println("📊 Supply: " + circSupply);
+      http.end();
+      return true;
+    } else {
+      Serial.println("❌ Supply value out of range: " + String(supplyVal));
+    }
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+
+// 🌎 Fetch latitude/longitude from saved city using the same Matrix approach
+void fetchLatLonFromCity()
+{
+  if (WiFi.status() != WL_CONNECTED || savedCity.length() == 0) {
+    Serial.println("⚠️ Skipping lat/lon fetch - WiFi or city missing.");
+    return;
+  }
+
+  HTTPClient http;
+  String cityParam = savedCity;
+  cityParam.replace(" ", "%20");
+  String url = "https://nominatim.openstreetmap.org/search?city=" + cityParam + "&format=json&limit=1";
+
+  Serial.print("🌎 Fetching city coordinates: ");
+  Serial.println(url);
+
+  http.setTimeout(3000);
+  http.setConnectTimeout(2000);
+  http.useHTTP10(true);
+  http.setReuse(false);
+  http.begin(url);
+  http.addHeader("User-Agent", "STACKSWORTH-CORE/2.0.3 (bitcoinmanor.com)");
+
+  int httpResponseCode = http.GET();
+  if (httpResponseCode == 200) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(2048);
+    DeserializationError err = deserializeJson(doc, payload);
+
+    if (!err && doc.size() > 0) {
+      String latStr = doc[0]["lat"] | "";
+      String lonStr = doc[0]["lon"] | "";
+      latitude = latStr.toFloat();
+      longitude = lonStr.toFloat();
+      Serial.printf("✅ City coordinates: %.6f, %.6f\n", latitude, longitude);
+    } else {
+      Serial.println("❌ City lookup JSON parse failed or returned no results.");
+    }
+  } else {
+    Serial.println("❌ City lookup failed, HTTP code: " + String(httpResponseCode));
+  }
+
+  http.end();
+}
+
+// 🌡️ Fetch weather from Open-Meteo, ported from MATRIX
+bool fetchWeather()
+{
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️ No WiFi connection, skipping weather fetch.");
+    return false;
+  }
+
+  if (savedCity.length() == 0) {
+    Serial.println("❌ City not set, skipping weather fetch.");
+    return false;
+  }
+
+  if (latitude == 0.0 && longitude == 0.0) {
+    fetchLatLonFromCity();
+    delay(150);
+  }
+
+  if (latitude == 0.0 && longitude == 0.0) {
+    Serial.println("⚠️ No valid lat/lon, skipping weather fetch.");
+    weatherValid = false;
+    return false;
+  }
+
+  String weatherURL = "https://api.open-meteo.com/v1/forecast?latitude=" + String(latitude, 6) +
+                      "&longitude=" + String(longitude, 6) +
+                      "&current=temperature_2m,weather_code&timezone=auto";
+
+  HTTPClient http;
+  http.setTimeout(3000);
+  http.setConnectTimeout(2000);
+  http.useHTTP10(true);
+  http.setReuse(false);
+  http.begin(weatherURL);
+
+  Serial.print("🌡️ Fetching weather: ");
+  Serial.println(weatherURL);
+
+  int httpCode = http.GET();
+  if (httpCode == 200) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(1024);
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (!error) {
+      float temp = doc["current"]["temperature_2m"] | 0.0;
+      int weatherCode = doc["current"]["weather_code"] | -1;
+      temperature = (int)round(temp);
+      weatherCondition = mapWeatherCode(weatherCode);
+      weatherValid = true;
+      Serial.printf("✅ Updated Weather: %d°C | %s\n", temperature, weatherCondition.c_str());
+      http.end();
+      return true;
+    }
+    Serial.println("❌ Failed to parse weather JSON");
+  } else {
+    Serial.println("❌ Weather fetch failed, HTTP code: " + String(httpCode));
+  }
+
+  http.end();
+  weatherValid = false;
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔄 OTA UPDATE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Check for firmware updates
+String checkForUpdates() {
+  if (WiFi.status() != WL_CONNECTED) return "";
+  
+  HTTPClient http;
+  http.begin(VERSION_CHECK_URL);
+  http.setTimeout(5000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String latestVersion = http.getString();
+    latestVersion.trim();
+    http.end();
+    
+    Serial.println("📡 Latest version: " + latestVersion);
+    Serial.println("📡 Current version: " + String(FIRMWARE_VERSION));
+    
+    return latestVersion;
+  }
+  
+  http.end();
+  return "";
+}
+
+// Perform OTA firmware update
+bool performOTAUpdate() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
+  Serial.println("🔄 Starting OTA update...");
+  
+  HTTPClient http;
+  http.begin(UPDATE_URL);
+  http.setTimeout(30000);
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    int contentLength = http.getSize();
+    Serial.printf("📦 Firmware size: %d bytes\n", contentLength);
+    
+    if (contentLength > 0) {
+      bool canBegin = Update.begin(contentLength);
+      
+      if (canBegin) {
+        WiFiClient* stream = http.getStreamPtr();
+        size_t written = Update.writeStream(*stream);
+        
+        if (written == contentLength) {
+          Serial.println("✅ Firmware written successfully");
+        } else {
+          Serial.printf("❌ Only wrote %d of %d bytes\n", written, contentLength);
+        }
+        
+        if (Update.end()) {
+          if (Update.isFinished()) {
+            Serial.println("✅ Update complete. Rebooting...");
+            http.end();
+            delay(1000);
+            ESP.restart();
+            return true;
+          } else {
+            Serial.println("❌ Update not finished");
+          }
+        } else {
+          Serial.printf("❌ Update error: %s\n", Update.errorString());
+        }
+      } else {
+        Serial.println("❌ Not enough space for update");
+      }
+    }
+  } else {
+    Serial.printf("❌ HTTP error: %d\n", httpCode);
+  }
+  
+  http.end();
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📺 DISPLAY UPDATE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Update Bitcoin price display
+void updatePriceDisplay() {
+  // Clear price area
+  tft.fillRect(20, 75, 200, 32, TFT_BLACK);
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(4);
+  tft.setCursor(20, 75);
+  
+  String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
+  tft.print(priceStr);
+  Serial.println("💰 Updated price display: " + priceStr);
+}
+
+// Update 24h change display
+void updateChange24hDisplay() {
+  // Clear change area
+  tft.fillRect(20, 115, 200, 20, TFT_BLACK);
+  
+  if (true) {
+    // Set color based on positive/negative
+    if (btcChange24h >= 0) {
+      tft.setTextColor(TFT_GREEN);
+    } else {
+      tft.setTextColor(TFT_RED);
+    }
+    
+    tft.setTextSize(2);
+    tft.setCursor(20, 115);
+    
+    String changeStr = (btcChange24h >= 0 ? "+" : "") + String(btcChange24h, 2) + "%";
+    tft.print(changeStr);
+    
+    Serial.println("📈 Updated change display: " + changeStr);
+  } else {
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(20, 115);
+    tft.print("---");
+    Serial.println("📈 24h change display hidden");
+  }
+}
+
+// Draw subtle selected currency tag inside Bitcoin price card
+void updateCurrencyTagDisplay() {
+  // Bottom-right of the large Bitcoin Price card
+  tft.fillRect(190, 122, 35, 12, TFT_BLACK);
+  tft.setTextColor(0x528A);  // dim gray
+  tft.setTextSize(1);
+  tft.setCursor(202, 124);
+  tft.print(savedCurrency);
+}
+
+// Update block height display (bottom-left dashboard box, left-justified)
+void updateBlockHeightDisplay() {
+  int barY = 175;
+  int blockBoxX = 5;
+  int blockBoxW = 105;
+
+  // Clear block value area in bottom bar
+  tft.fillRect(blockBoxX, barY + 24, blockBoxW, 20, TFT_BLACK);
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(blockBoxX, barY + 24);
+  tft.print(String(blockHeight));
+
+  Serial.println("📦 Updated block height: " + String(blockHeight));
+}
+
+// Update miner name display (bottom-middle dashboard box, single-line left-justified fit)
+// Keep the miner value the same text size as the BLOCK height value for visual consistency.
+void updateMinerDisplay() {
+  int barY = 175;
+  int minerBoxX = 117;
+  int minerBoxW = 132;
+
+  // Clear miner value area in bottom bar
+  tft.fillRect(minerBoxX, barY + 24, minerBoxW, 20, TFT_BLACK);
+
+  String displayMiner = minerName;
+  displayMiner.trim();
+  if (displayMiner.length() == 0) displayMiner = "Unknown";
+
+  // Size 2 matches the BLOCK height value. Truncate long names instead of shrinking them.
+  const uint8_t textSize = 2;
+  const int maxChars = 11;
+  if (displayMiner.length() > maxChars) {
+    displayMiner = displayMiner.substring(0, maxChars - 1) + ".";
+  }
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(textSize);
+  tft.setCursor(minerBoxX, barY + 24);
+  tft.print(displayMiner);
+
+  Serial.println("⛏️ Updated miner display: " + displayMiner);
+}
+
+// Update fee rate display (compact right-side dashboard metric)
+void updateFeeDisplay() {
+  // Clear compact fee value area on right side
+  tft.fillRect(238, 115, 82, 20, TFT_BLACK);
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(238, 115);
+  tft.print(String(feeRate));
+
+  tft.setTextSize(1);
+  tft.setCursor(262, 119);
+  tft.print("sat/vB");
+
+  Serial.println("⚡ Updated fee: " + String(feeRate) + " sat/vB");
+}
+
+// Update sats per dollar display (compact right-side dashboard metric)
+void updateSatsPerDollarDisplay() {
+  // Clear compact sats/$ value area on right side
+  tft.fillRect(238, 60, 82, 20, TFT_BLACK);
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(238, 60);
+  tft.print(String(satsPerDollar));
+
+  Serial.println("💎 Updated sats/$: " + String(satsPerDollar));
+}
+
+// Market cap removed from display (no longer used)
+
+// Supply removed from display (no longer used)
+
+// Update date/time display
+void updateDateTimeDisplay() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return;
+  }
+  
+  // Clear date/time area
+  tft.fillRect(10, 150, 230, 20, TFT_BLACK);
+  
+  // Format components separately (ESP32-compatible)
+  char dayOfWeek[10];
+  char monthDay[10];
+  char timeOnly[10];
+  
+  strftime(dayOfWeek, sizeof(dayOfWeek), "%a", &timeinfo);      // "Mon"
+  strftime(monthDay, sizeof(monthDay), "%b %d", &timeinfo);     // "May 05"
+  strftime(timeOnly, sizeof(timeOnly), "%I:%M%p", &timeinfo);   // "08:42PM"
+  
+  // Strip leading zeros like MATRIX does
+  char* time = timeOnly;
+  if (time[0] == '0') time++;  // "8:42PM" instead of "08:42PM"
+  
+  // Build final string: "Mon, May 05  8:42PM"
+  char timeStr[30];
+  snprintf(timeStr, sizeof(timeStr), "%s, %s  %s", dayOfWeek, monthDay, time);
+  
+  // Check DST status for logging (month is 0-11, tm_wday is 0-6 where 0=Sunday)
+  bool dstActive = isDST(timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_wday);
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 150);
+  tft.print(timeStr);
+  
+  Serial.printf("🕒 Updated time: %s (DST: %s)\n", timeStr, dstActive ? "Yes" : "No");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//   SCREEN DRAWING FUNCTIONS (4-Screen Carousel)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Draw screen indicator dots at bottom with footer text
+void drawScreenIndicators() {
+  int dotY = 228;
+  int dotSpacing = 20;
+  int startX = 240;  // Move dots to the right side
+  
+  // Footer text on left
+  tft.setTextColor(0x528A);  // Dim gray
+  tft.setTextSize(1);
+  tft.setCursor(5, 228);
+  tft.print("Built By BitcoinManor.com");
+  
+  // Dots on right
+  for (int i = 0; i < 4; i++) {
+    int dotX = startX + (i * dotSpacing);
+    uint16_t color = (i == currentScreen) ? TFT_ORANGE : 0x4208;  // Orange for active, dim gray for inactive
+    tft.fillCircle(dotX, dotY, 3, color);
+  }
+}
+
+// Screen 1: Dashboard (current main screen)
+void drawScreen1() {
+  tft.fillScreen(TFT_BLACK);
+  
+  // Subtle grid background
+  for (int x = 0; x < 320; x += 20) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 20) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+  
+  // Logo and header
+  int logoHexX = 42;
+  int logoHexY = 15;
+  int logoHexSize = 12;
+  
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+  }
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(logoHexX - 4, logoHexY - 7);
+  tft.print("S");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(65, 8);
+  tft.print("STACKSWORTH");
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(205, 8);
+  tft.print("CORE");
+  
+  // Main price card
+  tft.fillRoundRect(10, 35, 220, 105, 12, TFT_BLACK);
+  tft.drawLine(10, 140, 230, 140, TFT_CYAN);
+  tft.drawLine(230, 35, 230, 140, TFT_CYAN);
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(20, 43);
+  tft.print("BITCOIN PRICE");
+  
+  updatePriceDisplay();
+  updateChange24hDisplay();
+  updateCurrencyTagDisplay();
+  
+  // Compact right side metrics
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(238, 40);
+  tft.print("SATS/$");
+  updateSatsPerDollarDisplay();
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(238, 95);
+  tft.print("FEE");
+  updateFeeDisplay();
+  
+  // Date/Time
+  updateDateTimeDisplay();
+  
+  // Bottom bar: wider text boxes for Block and Miner, compact LIVE on right
+  int barY = 175;
+  int barHeight = 48;
+  int blockSectionWidth = 112;
+  int minerSectionWidth = 140;
+  
+  tft.drawRect(0, barY, 320, barHeight, TFT_ORANGE);
+  tft.drawLine(blockSectionWidth, barY, blockSectionWidth, barY + barHeight, TFT_ORANGE);
+  tft.drawLine(blockSectionWidth + minerSectionWidth, barY, blockSectionWidth + minerSectionWidth, barY + barHeight, TFT_ORANGE);
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(5, barY + 5);
+  tft.print("BLOCK");
+  updateBlockHeightDisplay();
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(blockSectionWidth + 5, barY + 5);
+  tft.print("MINER");
+  updateMinerDisplay();
+  
+  updateLiveIndicator();
+  
+  // Screen indicators with footer
+  drawScreenIndicators();
+}
+
+// Screen 2: Block Focus - Large block height with miner
+void drawScreen2() {
+  tft.fillScreen(TFT_BLACK);
+  
+  // Different grid pattern for visual distinction
+  for (int x = 0; x < 320; x += 30) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 30) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+  
+  // Logo and header (smaller)
+  int logoHexX = 25;
+  int logoHexY = 12;
+  int logoHexSize = 10;
+  
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_GREEN);
+  }
+  
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(1);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
+  tft.print("S");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(45, 8);
+  tft.print("BLOCK FOCUS");
+  
+  // Large block height display
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(2);
+  tft.setCursor(10, 50);
+  tft.print("BLOCK HEIGHT");
+  
+  tft.setTextColor(TFT_WHITE);
+  String blockStr = String(blockHeight);
+  uint8_t blockTextSize = (blockHeight >= 1000000) ? 7 : 8;
+  tft.setTextSize(blockTextSize);
+  int charWidth = blockTextSize * 6;  // Default TFT font is about 6 px wide per size unit
+  int blockWidth = blockStr.length() * charWidth;
+  int blockX = (320 - blockWidth) / 2;  // Center it
+  if (blockX < 0) blockX = 0;
+  tft.setCursor(blockX, 85);
+  tft.print(blockStr);
+  
+  // Miner below in green
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(2);
+  tft.setCursor(10, 165);
+  tft.print("MINED BY:");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  
+  // Auto-hyphenate long single-word miner names
+  String displayMiner = minerName;
+  if (minerName.indexOf(' ') < 0 && minerName.length() > 10) {
+    // Single word over 10 chars - hyphenate to fit better
+    int splitPoint = (minerName.length() + 1) / 2;
+    displayMiner = minerName.substring(0, splitPoint) + "-" + minerName.substring(splitPoint);
+  } else if (displayMiner.length() > 12) {
+    displayMiner = displayMiner.substring(0, 12);
+  }
+  
+  int minerWidth = displayMiner.length() * 18;
+  int minerX = (320 - minerWidth) / 2;
+  tft.setCursor(minerX, 190);
+  tft.print(displayMiner);
+  
+  // Screen indicators with footer
+  drawScreenIndicators();
+}
+
+// Screen 3: Time Focus - Large date/time with compact footer
+void drawScreen3() {
+  tft.fillScreen(TFT_BLACK);
+
+  // Diagonal grid pattern for visual distinction
+  for (int i = -240; i < 320; i += 40) {
+    tft.drawLine(i, 0, i + 240, 240, 0x2104);
+  }
+
+  // Logo and header (smaller)
+  int logoHexX = 25;
+  int logoHexY = 12;
+  int logoHexSize = 10;
+
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_CYAN);
+  }
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
+  tft.print("S");
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(45, 8);
+  tft.print("TIME FOCUS");
+
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)) {
+    char dayOfWeek[10];
+    strftime(dayOfWeek, sizeof(dayOfWeek), "%A", &timeinfo);
+
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(3);
+    int dayWidth = strlen(dayOfWeek) * 18;
+    int dayX = (320 - dayWidth) / 2;
+    if (dayX < 5) dayX = 5;
+    tft.setCursor(dayX, 32);
+    tft.print(dayOfWeek);
+
+    char timeOnly[10];
+    strftime(timeOnly, sizeof(timeOnly), "%I:%M%p", &timeinfo);
+    char* time = timeOnly;
+    if (time[0] == '0') time++;
+
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(6);
+    int timeWidth = strlen(time) * 36;
+    int timeX = (320 - timeWidth) / 2;
+    if (timeX < 0) timeX = 0;
+    tft.setCursor(timeX, 70);
+    tft.print(time);
+
+    char monthDay[15];
+    strftime(monthDay, sizeof(monthDay), "%B %d, %Y", &timeinfo);
+
+    // Raised date line under the main time
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(2);
+    int dateWidth = strlen(monthDay) * 12;
+    int dateX = (320 - dateWidth) / 2;
+    if (dateX < 5) dateX = 5;
+    tft.setCursor(dateX, 124);
+    tft.print(monthDay);
+  }
+
+  // City + temp line. Avoid the degree symbol because the default TFT font shows it as a box.
+  String cityLine = savedCity.length() ? savedCity : "Location";
+  if (weatherValid) {
+    int displayTemp = temperature;
+    if (savedTempUnit == "F") displayTemp = (int)round((temperature * 9.0 / 5.0) + 32);
+    cityLine += "  ";
+    if (displayTemp >= 0) cityLine += "+";
+    cityLine += String(displayTemp);
+    cityLine += savedTempUnit;   // Example: +68F, not +68°F
+  } else {
+    cityLine += "  --";
+    cityLine += savedTempUnit;
+  }
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  int cityWidth = cityLine.length() * 12;
+  int cityX = (320 - cityWidth) / 2;
+  if (cityX < 5) cityX = 5;
+  tft.setCursor(cityX, 146);
+  tft.print(cityLine);
+
+  // Larger weather condition line
+  String conditionLine = weatherValid ? weatherCondition : "Weather Syncing";
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  int conditionWidth = conditionLine.length() * 12;
+  int conditionX = (320 - conditionWidth) / 2;
+  if (conditionX < 5) conditionX = 5;
+  tft.setCursor(conditionX, 168);
+  tft.print(conditionLine);
+
+  // Compact footer with block and price, separated from weather content
+  tft.drawLine(0, 192, 320, 192, TFT_CYAN);
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  tft.setCursor(10, 198);
+  tft.print("BLOCK:");
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 209);
+  tft.print(String(blockHeight));
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  tft.setCursor(145, 198);
+  tft.print("PRICE:");
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(145, 209);
+  String priceStr = getCurrencySymbol() + formatWithCommas(btcPrice);
+  tft.print(priceStr);
+
+  drawScreenIndicators();
+}
+
+
+// Screen 4: Bitcoin Milestones - Halving countdown + 1 Million Blocks countdown
+void drawScreen4() {
+  tft.fillScreen(TFT_BLACK);
+
+  // Subtle vertical/horizontal grid pattern
+  for (int x = 0; x < 320; x += 25) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 25) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+
+  // Logo and header
+  int logoHexX = 25;
+  int logoHexY = 12;
+  int logoHexSize = 10;
+
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+  }
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(1);
+  tft.setCursor(logoHexX - 2, logoHexY - 3);
+  tft.print("S");
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(45, 8);
+  tft.print("BITCOIN MILESTONES");
+
+  int safeHeight = blockHeight;
+  if (safeHeight < 1) safeHeight = 0;
+
+  int nextHalvingBlock = ((safeHeight / HALVING_INTERVAL) + 1) * HALVING_INTERVAL;
+  int blocksToHalving = nextHalvingBlock - safeHeight;
+  if (safeHeight == 0) blocksToHalving = 0;
+
+  int blocksToMillion = ONE_MILLION_BLOCK - safeHeight;
+  if (blocksToMillion < 0) blocksToMillion = 0;
+
+  // -------------------------------------------------------------
+  // Top metric: Next Halving
+  // -------------------------------------------------------------
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  String halvingTitle = "NEXT HALVING";
+  int halvingTitleWidth = halvingTitle.length() * 12;
+  tft.setCursor((320 - halvingTitleWidth) / 2, 36);
+  tft.print(halvingTitle);
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(4);
+  String halvingStr = (safeHeight > 0) ? formatWithCommas(blocksToHalving) : "SYNC";
+  int halvingWidth = halvingStr.length() * 24;
+  int halvingX = (320 - halvingWidth) / 2;
+  if (halvingX < 5) halvingX = 5;
+  tft.setCursor(halvingX, 62);
+  tft.print(halvingStr);
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(1);
+  String halvingLabel = (safeHeight > 0) ? "BLOCKS TO BLOCK " + formatWithCommas(nextHalvingBlock) : "WAITING FOR BLOCK HEIGHT";
+  int halvingLabelWidth = halvingLabel.length() * 6;
+  int halvingLabelX = (320 - halvingLabelWidth) / 2;
+  if (halvingLabelX < 5) halvingLabelX = 5;
+  tft.setCursor(halvingLabelX, 104);
+  tft.print(halvingLabel);
+
+  tft.drawLine(18, 123, 302, 123, TFT_ORANGE);
+
+  // -------------------------------------------------------------
+  // Bottom metric: 1 Million Blocks
+  // -------------------------------------------------------------
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(4);
+  String millionStr = (safeHeight > 0) ? formatWithCommas(blocksToMillion) : "SYNC";
+  int millionWidth = millionStr.length() * 24;
+  int millionX = (320 - millionWidth) / 2;
+  if (millionX < 5) millionX = 5;
+  tft.setCursor(millionX, 136);
+  tft.print(millionStr);
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(1);
+  String toLabel = (blocksToMillion == 0 && safeHeight > 0) ? "MILESTONE REACHED" : "TO";
+  int toWidth = toLabel.length() * 6;
+  tft.setCursor((320 - toWidth) / 2, 178);
+  tft.print(toLabel);
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  String millionTitle = "1 MILLION BLOCKS";
+  int millionTitleWidth = millionTitle.length() * 12;
+  int millionTitleX = (320 - millionTitleWidth) / 2;
+  if (millionTitleX < 5) millionTitleX = 5;
+  tft.setCursor(millionTitleX, 192);
+  tft.print(millionTitle);
+
+  drawScreenIndicators();
+}
+
+// Flash a short full-screen alert when a new Bitcoin block arrives.
+void showNewBlockFlash(int newHeight) {
+  int previousScreen = currentScreen;
+
+  Serial.printf("🔔 NEW BLOCK ALERT: %d\n", newHeight);
+
+  // Quick flash pulse to catch the eye without being annoying.
+  for (int i = 0; i < 2; i++) {
+    tft.fillScreen(TFT_GREEN);
+    delay(80);
+    tft.fillScreen(TFT_BLACK);
+    delay(80);
+  }
+
+  tft.fillScreen(TFT_BLACK);
+
+  // Subtle grid background, matching Block Focus feel.
+  for (int x = 0; x < 320; x += 30) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 30) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(3);
+  String title = "NEW BLOCK";
+  int titleWidth = title.length() * 18;
+  tft.setCursor((320 - titleWidth) / 2, 42);
+  tft.print(title);
+
+  tft.setTextColor(TFT_WHITE);
+  String h = String(newHeight);
+  uint8_t alertSize = (newHeight >= 1000000) ? 6 : 7;
+  tft.setTextSize(alertSize);
+  int charWidth = alertSize * 6;
+  int w = h.length() * charWidth;
+  int x = (320 - w) / 2;
+  if (x < 0) x = 0;
+  tft.setCursor(x, 92);
+  tft.print(h);
+
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(2);
+  String subtitle = "BLOCK FOUND";
+  int subtitleWidth = subtitle.length() * 12;
+  tft.setCursor((320 - subtitleWidth) / 2, 170);
+  tft.print(subtitle);
+
+  delay(NEW_BLOCK_HOLD_MS);
+
+  currentScreen = previousScreen;
+  refreshCurrentScreen();
+}
+
+// Refresh current screen with latest data
+void refreshCurrentScreen() {
+  switch(currentScreen) {
+    case 0:
+      drawScreen1();
+      break;
+    case 1:
+      drawScreen2();
+      break;
+    case 2:
+      drawScreen3();
+      break;
+    case 3:
+      drawScreen4();
+      break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  📺 DISPLAY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+void updateLiveIndicator()
+{
+  // Bottom data bar position - LIVE section stays on the compact right side
+  int barY = 175;
+  int blockSectionWidth = 112;
+  int minerSectionWidth = 140;
+  int liveX = blockSectionWidth + minerSectionWidth;
+  
+  // Clear the LIVE indicator area (68px wide)
+  tft.fillRect(liveX + 1, barY + 1, 66, 46, TFT_BLACK);
+  
+  if (wifiConnected)
+  {
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(1);
+    tft.setCursor(liveX + 20, barY + 15);
+    tft.print("LIVE");
+    tft.fillCircle(liveX + 34, barY + 32, 5, TFT_CYAN);
+  }
+  else
+  {
+    tft.setTextColor(TFT_RED);
+    tft.setTextSize(1);
+    tft.setCursor(liveX + 10, barY + 15);
+    tft.print("OFFLINE");
+    tft.fillCircle(liveX + 34, barY + 32, 5, TFT_RED);
+  }
+}
+
+void showConnectingAnimation(int dotCount)
+{
+  // Clear the connecting message area
+  tft.fillRect(60, 160, 200, 20, TFT_BLACK);
+  
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  tft.setCursor(60, 160);
+  tft.print("Connecting");
+  
+  // Animated dots
+  for (int i = 0; i < dotCount; i++)
+  {
+    tft.print(".");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🌐 WiFi CONNECTION & AP MODE
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Start Access Point mode for WiFi configuration
+void startAccessPoint() {
+  Serial.println("🚀 Starting Access Point mode...");
+  
+  WiFi.mode(WIFI_OFF);
+  delay(100);
+  WiFi.disconnect(true);
+  WiFi.setAutoReconnect(false);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  
+  macID = getShortMAC();
+  String apSSID = "SW-CORE-" + macID;
+  WiFi.softAP(apSSID.c_str());
+  
+  apMode = true;
+  apMsgShown = false;
+  
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.print("🌍 AP IP address: ");
+  Serial.println(myIP);
+  Serial.print("📶 AP SSID: ");
+  Serial.println(apSSID);
+  
+  // Start DNS server for captive portal
+  dnsServer.start(53, "*", myIP);
+  Serial.println("🚀 DNS Server started for captive portal");
+  
+  // Show AP mode message on display
+  tft.fillScreen(TFT_BLACK);
+  
+  // Draw hexagon logo at top center
+  int logoHexX = 160;  // Center of screen (320/2)
+  int logoHexY = 30;
+  int logoHexSize = 18;
+  
+  // Draw hexagon
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+    tft.drawLine(x1+1, y1+1, x2+1, y2+1, TFT_ORANGE); // Thicker lines
+  }
+  
+  // Draw S inside hexagon
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(3);
+  tft.setCursor(logoHexX - 7, logoHexY - 11);
+  tft.print("S");
+  
+  // STACKSWORTH CORE below logo
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(65, 55);
+  tft.print("STACKSWORTH");
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(200, 55);
+  tft.print("CORE");
+  
+  // SETUP MODE heading
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(3);
+  tft.setCursor(67, 80);
+  tft.print("SETUP MODE");
+  
+  // Instructions
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(62, 110);
+  tft.print("Connect to WiFi:");
+  
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  tft.setCursor(70, 135);
+  tft.print(apSSID);
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(35, 157);
+  tft.print("Portal will auto-open.");
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(40, 178);
+  tft.print("Or go to: ");
+  tft.print(myIP.toString());
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  tft.setCursor(95, 210);
+  tft.print("core.local");
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(1);
+  tft.setCursor(80, 200);
+  tft.print("After setup, make changes at");
+  
+  // Footer
+  tft.setTextColor(0x528A);  // Dim gray
+  tft.setTextSize(1);
+  tft.setCursor(65, 228);
+  tft.print("Built by Bitcoin Manor 2026");
+}
+
+void connectWiFi()
+{
+  WiFi.mode(WIFI_STA);
+  
+  // Use saved credentials (AP mode will be started if none exist)
+  String connectSSID = savedSSID;
+  String connectPassword = savedPassword;
+  
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(connectSSID);
+  
+  WiFi.begin(connectSSID.c_str(), connectPassword.c_str());
+
+  Serial.print("Connecting");
+
+  unsigned long startAttempt = millis();
+  int dotCount = 0;
+
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 20000)
+  {
+    Serial.print(".");
+    
+    // Update animation every 500ms
+    showConnectingAnimation(dotCount % 4);
+    dotCount++;
+    
+    delay(500);
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    wifiConnected = true;
+
+    Serial.println();
+    Serial.println("WiFi connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+
+    // Clear connecting message
+    tft.fillRect(60, 160, 200, 20, TFT_BLACK);
+    tft.setTextColor(TFT_GREEN);
+    tft.setTextSize(2);
+    tft.setCursor(80, 160);
+    tft.print("Connected!");
+
+    tft.setTextColor(TFT_CYAN);
+    tft.setTextSize(1);
+    tft.setCursor(72, 185);
+    tft.print("Portal: core.local");
+
+    delay(1800);
+    
+    // Update indicator if main UI is already shown
+    if (initialSetupDone)
+    {
+      updateLiveIndicator();
+    }
+
+    if (MDNS.begin("core"))
+    {
+      Serial.println("mDNS started: http://core.local");
+      MDNS.addService("http", "tcp", 80);
+    }
+    else
+    {
+      Serial.println("mDNS failed");
+    }
+  }
+  else
+  {
+    wifiConnected = false;
+    Serial.println();
+    Serial.println("WiFi connection failed - starting AP mode");
+    
+    // Connection failed - start AP mode
+    startAccessPoint();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🌐 WEB SERVER FUNCTIONS & ROUTES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Initialize web server routes
+void setupWebServer() {
+  // Serve main portal page (compressed)
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/core.html.gz", "text/html");
+    response->addHeader("Content-Encoding", "gzip");
+    request->send(response);
+  });
+  
+  // Device info endpoint
+  server.on("/deviceinfo", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String json = "{\"macid\":\"" + macID + "\"}";
+    request->send(200, "application/json", json);
+  });
+  
+  // Identify device (blink display)
+  server.on("/identify", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("🔍 Device identification requested");
+    
+    // Blink the display 3 times
+    for (int i = 0; i < 3; i++) {
+      tft.setBrightness(255);
+      delay(300);
+      tft.setBrightness(50);
+      delay(300);
+    }
+    tft.setBrightness(savedBrightness);
+    
+    request->send(200, "text/plain", "OK");
+  });
+  
+  // Check for firmware updates
+  server.on("/checkupdate", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String latestVersion = checkForUpdates();
+    
+    if (latestVersion.length() > 0 && latestVersion != FIRMWARE_VERSION) {
+      String json = "{\"updateAvailable\":true,\"latestVersion\":\"" + latestVersion + "\"}";
+      request->send(200, "application/json", json);
+    } else {
+      String json = "{\"updateAvailable\":false}";
+      request->send(200, "application/json", json);
+    }
+  });
+  
+  // Perform OTA update
+  server.on("/doupdate", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Update starting...");
+    otaRequested = true;
+    Serial.println("📥 OTA update requested from web portal");
+  });
+  
+  // Save settings and reboot
+  server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request) {
+    Serial.println("💾 Saving settings from web portal...");
+    
+    // Extract all form data
+    if (request->hasParam("ssid", true)) {
+      savedSSID = request->getParam("ssid", true)->value();
+    }
+    if (request->hasParam("password", true)) {
+      savedPassword = request->getParam("password", true)->value();
+    }
+    if (request->hasParam("city", true)) {
+      savedCity = request->getParam("city", true)->value();
+    }
+    if (request->hasParam("timezone", true)) {
+      savedTimezone = request->getParam("timezone", true)->value().toInt();
+      if (savedTimezone < 0 || savedTimezone >= (int)NUM_TIMEZONES) savedTimezone = getTimezoneIndex();
+    }
+    if (request->hasParam("currency", true)) {
+      savedCurrency = request->getParam("currency", true)->value();
+    }
+    if (request->hasParam("tempunit", true)) {
+      savedTempUnit = request->getParam("tempunit", true)->value();
+    }
+    if (request->hasParam("devicename", true)) {
+      savedDeviceName = request->getParam("devicename", true)->value();
+    }
+    if (request->hasParam("brightness", true)) {
+      savedBrightness = request->getParam("brightness", true)->value().toInt();
+    }
+    
+    
+    // Save to preferences. If portal is reopened and WiFi fields are left blank, keep existing credentials.
+    prefs.begin("stacksworth", false);
+    savedSSID.trim();
+    savedPassword.trim();
+    if (savedSSID.length() == 0) savedSSID = prefs.getString("ssid", "");
+    if (savedPassword.length() == 0) savedPassword = prefs.getString("password", "");
+    prefs.putString("ssid", savedSSID);
+    prefs.putString("password", savedPassword);
+    prefs.putString("city", savedCity);
+    prefs.putInt("timezone", savedTimezone);
+    prefs.putString("currency", savedCurrency);
+    prefs.putString("tempunit", savedTempUnit);
+    prefs.putString("devicename", savedDeviceName);
+    prefs.putUChar("brightness", savedBrightness);
+    
+    
+    prefs.end();
+    
+    Serial.println("✅ Settings saved!");
+    Serial.println("🔄 Rebooting to apply new WiFi settings...");
+    
+    request->send(200, "text/plain", "Settings saved. Rebooting...");
+    
+    delay(1000);
+    ESP.restart();
+  });
+  
+  // Catch-all route for captive portal (redirect all to root)
+  server.onNotFound([](AsyncWebServerRequest *request) {
+    if (apMode) {
+      // In AP mode, redirect everything to the portal
+      AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/core.html.gz", "text/html");
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+    } else {
+      request->send(404, "text/plain", "Not found");
+    }
+  });
+  
+  server.begin();
+  Serial.println("✅ Web server started on port 80");
+}
+
+// Load saved settings from preferences
+void loadSavedSettings() {
+  prefs.begin("stacksworth", true);  // read-only
+  
+  savedSSID = prefs.getString("ssid", "");
+  savedPassword = prefs.getString("password", "");
+  savedCity = prefs.getString("city", "");
+  savedTimezone = prefs.getInt("timezone", 11);  // Default Mountain index
+  savedCurrency = prefs.getString("currency", "USD");
+  savedTempUnit = prefs.getString("tempunit", "F");
+  savedDeviceName = prefs.getString("devicename", "");
+  savedBrightness = prefs.getUChar("brightness", 128);
+  
+  // CORE now uses a fixed curated dashboard; old checkbox prefs are ignored.
+  for (int i = 0; i < 12; i++) {
+    displayEnabled[i] = true;
+  }
+  
+  prefs.end();
+  
+  Serial.println("📂 Loaded settings:");
+  Serial.println("  SSID: " + savedSSID);
+  Serial.println("  City: " + savedCity);
+  Serial.println("  Currency: " + savedCurrency);
+  Serial.println("  Device Name: " + savedDeviceName);
+  Serial.printf("  Brightness: %d\n", savedBrightness);
+}
+
+//SETUP
+
+void setup()
+{
+  Serial.begin(115200);
+  Serial.println("🚀 Starting STACKSWORTH CORE " + String(FIRMWARE_VERSION) + "...");
+  Serial.println("📱 Features: Touch Screen | Auto DST | Dynamic Sizing");
+  
+  // 🆔 Get device MAC ID
+  WiFi.mode(WIFI_STA);
+  macID = getShortMAC();
+  Serial.println("🆔 Device MAC ID: " + macID);
+  
+  // 📂 Initialize SPIFFS
+  if (!SPIFFS.begin(true)) {
+    Serial.println("❌ SPIFFS mount failed! Formatting...");
+    SPIFFS.format();
+    if (!SPIFFS.begin(true)) {
+      Serial.println("❌ SPIFFS format failed!");
+    } else {
+      Serial.println("✅ SPIFFS formatted and mounted");
+    }
+  } else {
+    Serial.println("✅ SPIFFS mounted");
+  }
+  
+  // 💾 Load saved settings
+  loadSavedSettings();
+  
+  // Initialize display FIRST
+  tft.init();
+  Serial.println("📺 Display initialized");
+
+  tft.setBrightness(savedBrightness);
+  tft.setRotation(1);  // Landscape mode
+  tft.fillScreen(TFT_BLACK);
+  
+  // Initialize touch controller
+  pinMode(36, INPUT);  // Explicitly set IRQ pin as input
+  
+  if (tft.touch()) {
+    Serial.println("✅ Touch controller found");
+    
+    // Touch calibration comes from the LovyanGFX XPT2046 config above.
+    // Do NOT call setTouchCalibrate() with an uninitialized array; it can make touch feel inconsistent.
+    Serial.println("🔧 Touch calibration using configured XPT2046 raw values");
+  } else {
+    Serial.println("❌ Touch controller NOT found - hardware issue?");
+  }
+  
+  // Draw splash screen - hex logo and text on same line
+  int splashY = 100;
+  int hexX = 30;
+  int hexY = splashY;
+  int hexSize = 18;
+  
+  // Draw hexagon
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = hexX + hexSize * cos(angle1);
+    int y1 = hexY + hexSize * sin(angle1);
+    int x2 = hexX + hexSize * cos(angle2);
+    int y2 = hexY + hexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+    tft.drawLine(x1+1, y1+1, x2+1, y2+1, TFT_ORANGE); // Thicker lines
+  }
+  
+  // Draw S inside hexagon
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(3);
+  tft.setCursor(hexX - 9, hexY - 12);
+  tft.print("S");
+  
+  // STACKSWORTH on same line as logo
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  tft.setCursor(60, splashY - 12);
+  tft.print("STACKSWORTH");
+  
+  // CORE below on its own line
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(220, splashY + 18);
+  tft.print("CORE");
+  
+  delay(1500);  // Show splash for 1.5 seconds
+  
+  // Show "CHECKING HARDWARE" loading screen
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(30, 100);
+  tft.print("CHECKING HARDWARE");
+  
+  // Animated loading dots
+  tft.setTextColor(TFT_CYAN);
+  for (int i = 0; i < 3; i++) {
+    tft.setCursor(95 + (i * 40), 130);
+    tft.print(".");
+    delay(300);
+  }
+  
+  delay(500);
+  
+  // 🌐 Smart WiFi Connection Logic (matches MATRIX behavior)
+  if (savedSSID.length() > 0) {
+    // Has saved credentials - try to connect
+    Serial.println("📡 Found saved WiFi credentials, attempting connection...");
+    connectWiFi();
+  } else {
+    // No saved credentials - go directly to AP mode
+    Serial.println("⚠️ No saved WiFi credentials found, starting Access Point...");
+    startAccessPoint();
+  }
+  
+  // 🌐 Start web server (works in both STA and AP mode)
+  setupWebServer();
+  if (wifiConnected) {
+    Serial.println("🌐 Web portal available at: http://core.local");
+  } else if (apMode) {
+    Serial.println("🌐 Web portal available at: " + WiFi.softAPIP().toString());
+  }
+  
+  // Only draw main UI if NOT in AP mode
+  if (!apMode) {
+    // 🚀 Initial data fetch if WiFi is connected
+    if (wifiConnected) {
+      Serial.println("🔄 Fetching initial Bitcoin data...");
+      
+      // 🌍 Configure timezone using portal timezone index (auto-handles DST)
+      applyTimezone();
+      
+      // Fetch all data before drawing screens
+      fetchPriceFromSatonak();
+      lastPriceFetch = millis();
+      delay(500);
+      
+      fetchHeightFromSatonak();
+      lastHeightFetch = millis();
+      lastAnnouncedBlockHeight = blockHeight;  // Establish baseline so boot does not trigger a new-block alert
+      delay(500);
+      
+      fetchMinerFromSatonak();
+      lastMinerFetch = millis();
+      delay(500);
+      
+      fetchFeeFromSatonak();
+      lastFeeFetch = millis();
+      delay(1000);
+      
+      fetchChange24hFromSatonak();
+      lastChange24hFetch = millis();
+      delay(500);
+
+      fetchWeather();
+      lastWeatherFetch = millis();
+      
+      Serial.println("✅ Initial data fetch complete!");
+    }
+    
+    // Draw initial screen (Dashboard)
+    drawScreen1();
+    Serial.println("📱 Touch screen enabled - tap to cycle through screens");
+    
+    // Test touch initialization - try multiple times
+    Serial.println("🔍 Touch controller test:");
+    Serial.println("🔧 Touch pins: CS=33, IRQ=36, shared SPI (MOSI=13, MISO=12, SCK=14)");
+    
+    bool touchWorking = false;
+    for (int i = 0; i < 5; i++) {
+      uint16_t testX, testY;
+      if (tft.getTouch(&testX, &testY)) {
+        Serial.printf("✅ Touch detected! X=%d, Y=%d\n", testX, testY);
+        touchWorking = true;
+        break;
+      }
+      delay(100);
+    }
+    
+    if (!touchWorking) {
+      Serial.println("⚠️ Touch not detected at startup (normal - waiting for first touch)");
+      Serial.println("💡 Try tapping screen now...");
+    }
+  }
+  
+  initialSetupDone = true;
+}
+
+void loop()
+{ 
+  if (otaRequested) {
+    otaRequested = false;
+    Serial.println("🔄 OTA request picked up by main loop");
+    performOTAUpdate();
+    return;
+  }
+
+  // 📡 Process DNS requests when in AP mode (for captive portal)
+  if (apMode) {
+    dnsServer.processNextRequest();
+    return;  // Skip everything else in AP mode
+  }
+  
+  // 📱 Handle touch screen input
+  // Edge-triggered: one physical tap advances one screen, holding does not keep cycling.
+  uint16_t touchX, touchY;
+  bool isTouched = tft.getTouch(&touchX, &touchY);
+
+  static unsigned long lastDebugPrint = 0;
+  if (touchDebugMode && millis() - lastDebugPrint > 1000) {
+    lastDebugPrint = millis();
+    int irqState = digitalRead(36);
+    Serial.printf("🔍 Touch status: %s | IRQ pin: %d\n", isTouched ? "TOUCHED" : "not touched", irqState);
+    if (isTouched) {
+      Serial.printf("   Coordinates: X=%d, Y=%d\n", touchX, touchY);
+    }
+  }
+
+  if (isTouched && !touchWasDown) {
+    unsigned long now = millis();
+
+    if (now - lastTouchTime > touchDebounce) {
+      lastTouchTime = now;
+      touchWasDown = true;
+
+      currentScreen = (currentScreen + 1) % 4;
+      Serial.printf("📱 Touch ACCEPTED! Coordinates: (%d, %d) -> Switching to screen %d\n", touchX, touchY, currentScreen);
+      refreshCurrentScreen();
+    }
+  } else if (!isTouched) {
+    touchWasDown = false;
+  }
+
+  // Check WiFi status periodically and reconnect if needed
+  if (millis() - lastWiFiCheck >= wifiCheckInterval)
+  {
+    lastWiFiCheck = millis();
+    
+    bool wasConnected = wifiConnected;
+    wifiConnected = (WiFi.status() == WL_CONNECTED);
+    
+    // If status changed, update the indicator
+    if (wasConnected != wifiConnected)
+    {
+      Serial.print("WiFi status changed: ");
+      Serial.println(wifiConnected ? "Connected" : "Disconnected");
+      
+      // Only update LIVE indicator if on dashboard screen
+      if (currentScreen == 0) {
+        updateLiveIndicator();
+      }
+    }
+    
+    // Try to reconnect if disconnected
+    if (!wifiConnected)
+    {
+      Serial.println("Attempting WiFi reconnection...");
+      WiFi.disconnect();
+      
+      // Use saved credentials only
+      String connectSSID = savedSSID;
+      String connectPassword = savedPassword;
+      WiFi.begin(connectSSID.c_str(), connectPassword.c_str());
+      
+      // Wait up to 5 seconds for connection
+      unsigned long startAttempt = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 5000)
+      {
+        delay(100);
+      }
+      
+      if (WiFi.status() == WL_CONNECTED)
+      {
+        wifiConnected = true;
+        Serial.println("Reconnected to WiFi!");
+        Serial.print("IP Address: ");
+        Serial.println(WiFi.localIP());
+        
+        // Only update LIVE indicator if on dashboard screen
+        if (currentScreen == 0) {
+          updateLiveIndicator();
+        }
+      }
+    }
+  }
+  
+  // 🌐 Staggered API data fetching (only if WiFi connected)
+  if (wifiConnected) {
+    unsigned long now = millis();
+    
+    // Re-sync NTP every 30 minutes to prevent clock drift
+    if (now - lastNtpSync >= INTERVAL_NTP_SYNC) {
+      applyTimezone();
+      lastNtpSync = now;
+    }
+    
+    // Update time only on screens that actually contain time.
+    // This prevents the dashboard time rectangle from drawing over Block Focus.
+    if (now - lastTimeUpdate >= INTERVAL_TIME) {
+      lastTimeUpdate = now;
+      if (currentScreen == 0) {
+        updateDateTimeDisplay();
+      } else if (currentScreen == 2) {
+        drawScreen3();
+      }
+    }
+    
+    // Fetch weather every 30 minutes if a city is saved
+    if (now - lastWeatherFetch >= INTERVAL_WEATHER) {
+      if (fetchWeather()) {
+        lastWeatherFetch = now;
+        if (currentScreen == 2) {
+          drawScreen3();
+        }
+      } else {
+        lastWeatherFetch = now; // avoid hammering endpoint if unavailable
+      }
+    }
+
+    // Fetch price every 5 minutes
+    if (now - lastPriceFetch >= INTERVAL_PRICE) {
+      if (fetchPriceFromSatonak()) {
+        lastPriceFetch = now;
+        
+        // Update displays based on active screen
+        if (currentScreen == 0) {
+          updatePriceDisplay();
+          updateSatsPerDollarDisplay();
+        } else if (currentScreen == 2) {
+          drawScreen3();  // Refresh footer with new price
+        } else if (currentScreen == 3) {
+          drawScreen4();  // Refresh ATH/milestones with new price
+        }
+      }
+    }
+    
+    // Fetch block height every 30 seconds
+    if (now - lastHeightFetch >= INTERVAL_HEIGHT) {
+      if (fetchHeightFromSatonak()) {
+        lastHeightFetch = now;
+
+        bool isNewBlock = (lastAnnouncedBlockHeight > 0 && blockHeight > lastAnnouncedBlockHeight);
+        if (blockHeight > 0) {
+          lastAnnouncedBlockHeight = blockHeight;
+        }
+
+        if (isNewBlock) {
+          // Sync miner immediately with the new height so Dashboard and alert feel coordinated.
+          fetchMinerFromSatonak();
+          lastMinerFetch = millis();
+          showNewBlockFlash(blockHeight);
+        } else {
+          // Update displays based on active screen
+          if (currentScreen == 0) {
+            updateBlockHeightDisplay();
+          } else if (currentScreen == 1) {
+            drawScreen2();  // Refresh block focus screen
+          } else if (currentScreen == 2) {
+            drawScreen3();  // Refresh footer with new block
+          } else if (currentScreen == 3) {
+            drawScreen4();  // Refresh halving / 1M countdown with new block
+          }
+        }
+      }
+    }
+    
+    // Fetch miner every 6 minutes
+    if (now - lastMinerFetch >= INTERVAL_MINER) {
+      if (fetchMinerFromSatonak()) {
+        lastMinerFetch = now;
+        
+        // Update displays based on active screen
+        if (currentScreen == 0) {
+          updateMinerDisplay();
+        } else if (currentScreen == 1) {
+          drawScreen2();  // Refresh block focus with new miner
+        }
+      }
+    }
+    
+    // Fetch fee every 9 minutes
+    if (now - lastFeeFetch >= INTERVAL_FEE) {
+      if (fetchFeeFromSatonak()) {
+        lastFeeFetch = now;
+        
+        // Only update if on dashboard
+        if (currentScreen == 0) {
+          updateFeeDisplay();
+        }
+      }
+    }
+    
+    // Fetch 24h change every 30 minutes (rate limited by API)
+    if (now - lastChange24hFetch >= INTERVAL_CHANGE24H) {
+      if (fetchChange24hFromSatonak()) {
+        lastChange24hFetch = now;
+        
+        // Only update if on dashboard
+        if (currentScreen == 0) {
+          updateChange24hDisplay();
+        }
+      }
+    }
+  }
+}
