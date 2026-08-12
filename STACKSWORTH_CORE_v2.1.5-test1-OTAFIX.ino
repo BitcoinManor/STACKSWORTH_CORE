@@ -1,12 +1,12 @@
 /*****************************************************************
  *
  *  STACKSWORTH CORE
- *  Firmware Version : v2.1.5-test1-OTAFIX
+ *  Firmware Version : v2.1.5-test2
  *  Release Name     : OTA TESTING
  *
- *  Release Date     : August 8, 2026
+ *  Release Date     : August 11, 2026
  *
- *  Included in v2.1.5-test1-OTAFIX
+ *  Included in v2.1.5-test2
  *  ------------------------------------------------------------
  *  - OTA update support for firmware updates
  *  - New "OTA TESTING" release channel for beta testers
@@ -136,10 +136,10 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "2.1.5-test1-OTAFIX";
+const char* FIRMWARE_VERSION = "2.1.5-test2";
 const char* FIRMWARE_CHANNEL = "OTA TESTING";  // Used for OTA update checks. Change to "STABLE" for production releases
 const char* DEVICE_MODEL = "CORE";
-const char* FIRMWARE_RELEASE_DATE = "August 8, 2026";
+const char* FIRMWARE_RELEASE_DATE = "August 11, 2026";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -1604,7 +1604,7 @@ void startAccessPoint() {
   tft.fillScreen(TFT_BLACK);
   
   // Draw hexagon logo at top center
-  int logoHexX = 160;  // Center of screen (320/2)
+  int logoHexX = 40;  //used to be 160 so it was centered
   int logoHexY = 30;
   int logoHexSize = 18;
   
@@ -1629,53 +1629,53 @@ void startAccessPoint() {
   // STACKSWORTH CORE below logo
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(65, 55);
+  tft.setCursor(65, 25);
   tft.print("STACKSWORTH");
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(200, 55);
+  tft.setCursor(200, 25);
   tft.print("CORE");
   
   // SETUP MODE heading
   tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(3);
-  tft.setCursor(67, 80);
+  tft.setCursor(67, 55);
   tft.print("SETUP MODE");
   
   // Instructions
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(62, 110);
+  tft.setCursor(62, 90);
   tft.print("Connect to WiFi:");
   
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(2);
-  tft.setCursor(70, 135);
+  tft.setCursor(70, 115);
   tft.print(apSSID);
   
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(35, 157);
+  tft.setCursor(30, 137);
   tft.print("Portal will auto-open.");
 
   tft.setTextColor(TFT_ORANGE);
-  tft.setCursor(40, 178);
+  tft.setCursor(40, 158);
   tft.print("Or go to: ");
   tft.print(myIP.toString());
 
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(45, 180);
+  tft.print("After setup, visit");
+
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(2);
-  tft.setCursor(95, 210);
+  tft.setCursor(100, 200);
   tft.print("core.local");
-
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(1);
-  tft.setCursor(80, 200);
-  tft.print("After setup, make changes at");
   
   // Footer
   tft.setTextColor(0x528A);  // Dim gray
-  tft.setTextSize(1);
-  tft.setCursor(65, 228);
+  tft.setTextSize(2);
+  tft.setCursor(35, 222);
   tft.print("Built by Bitcoin Manor 2026");
 }
 
@@ -1773,8 +1773,20 @@ void setupWebServer() {
   
   // Device info endpoint
   server.on("/deviceinfo", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String json = "{\"macid\":\"" + macID + "\"}";
+    String json = "{";
+    json += "\"macid\":\"" + macID + "\",";
+    json += "\"model\":\"" + String(DEVICE_MODEL) + "\",";
+    json += "\"version\":\"" + String(FIRMWARE_VERSION) + "\",";
+    json += "\"channel\":\"" + String(FIRMWARE_CHANNEL) + "\"";
+    json += "}";
+
     request->send(200, "application/json", json);
+
+    Serial.println("📱 Device info requested");
+    Serial.println("   MAC ID: " + macID);
+    Serial.println("   Model: " + String(DEVICE_MODEL));
+    Serial.println("   Firmware: " + String(FIRMWARE_VERSION));
+    Serial.println("   Channel: " + String(FIRMWARE_CHANNEL));
   });
   
   // Identify device (blink display)
