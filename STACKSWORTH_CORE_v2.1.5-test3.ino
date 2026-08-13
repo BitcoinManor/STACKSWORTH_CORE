@@ -1,12 +1,12 @@
 /*****************************************************************
  *
  *  STACKSWORTH CORE
- *  Firmware Version : v2.1.5-test2
+ *  Firmware Version : v2.1.5-test3
  *  Release Name     : OTA TESTING
  *
  *  Release Date     : August 11, 2026
  *
- *  Included in v2.1.5-test2
+ *  Included in v2.1.5-test3
  *  ------------------------------------------------------------
  *  - OTA update support for firmware updates
  *  - New "OTA TESTING" release channel for beta testers
@@ -136,7 +136,7 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "2.1.5-test2";
+const char* FIRMWARE_VERSION = "2.1.5-test3";
 const char* FIRMWARE_CHANNEL = "OTA TESTING";  // Used for OTA update checks. Change to "STABLE" for production releases
 const char* DEVICE_MODEL = "CORE";
 const char* FIRMWARE_RELEASE_DATE = "August 11, 2026";
@@ -780,6 +780,108 @@ String checkForUpdates() {
   return "";
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// 🔄 OTA CUSTOMER DISPLAY
+// ─────────────────────────────────────────────────────────────
+
+void drawOTAProgressScreen() {
+  tft.fillScreen(TFT_BLACK);
+
+  // Subtle background grid
+  for (int x = 0; x < 320; x += 20) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+  for (int y = 0; y < 240; y += 20) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+
+  // STACKSWORTH CORE header
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(42, 18);
+  tft.print("STACKSWORTH");
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(185, 18);
+  tft.print("CORE");
+
+  tft.drawLine(25, 43, 295, 43, TFT_ORANGE);
+
+  // Main title
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(70, 58);
+  tft.print("FIRMWARE UPDATE");
+
+  // Status
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(100, 88);
+  tft.print("Installing...");
+
+  // Progress bar frame
+  tft.drawRoundRect(28, 118, 264, 26, 6, TFT_ORANGE);
+  tft.fillRoundRect(33, 123, 254, 16, 4, 0x2104);
+
+  // Starting percentage
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  tft.setCursor(135, 154);
+  tft.print("0%");
+
+  // Safety message
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(1);
+  tft.setCursor(92, 193);
+  tft.print("KEEP CORE POWERED");
+
+  tft.setTextColor(0xBDF7);
+  tft.setCursor(77, 209);
+  tft.print("Please do not unplug device");
+}
+
+
+void updateOTAProgressDisplay(int percent) {
+  percent = constrain(percent, 0, 100);
+
+  // Fill inside progress bar
+  const int barX = 33;
+  const int barY = 123;
+  const int barWidth = 254;
+  const int barHeight = 16;
+
+  int filledWidth = (barWidth * percent) / 100;
+
+  // Reset bar interior, then draw current progress
+  tft.fillRoundRect(barX, barY, barWidth, barHeight, 4, 0x2104);
+
+  if (filledWidth > 0) {
+    tft.fillRoundRect(
+      barX,
+      barY,
+      filledWidth,
+      barHeight,
+      4,
+      TFT_ORANGE
+    );
+  }
+
+  // Clear old percentage
+  tft.fillRect(105, 150, 110, 34, TFT_BLACK);
+
+  String percentText = String(percent) + "%";
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+
+  int percentWidth = percentText.length() * 18;
+  int percentX = (320 - percentWidth) / 2;
+
+  tft.setCursor(percentX, 154);
+  tft.print(percentText);
+}
+
 // Perform OTA firmware update
 bool performOTAUpdate() {
   if (WiFi.status() != WL_CONNECTED) return false;
@@ -800,7 +902,69 @@ bool performOTAUpdate() {
       
       if (canBegin) {
         WiFiClient* stream = http.getStreamPtr();
-        size_t written = Update.writeStream(*stream);
+
+        drawOTAProgressScreen();
+        updateOTAProgressDisplay(0);
+
+        const size_t bufferSize = 4096;
+        static uint8_t buffer[bufferSize];
+
+        size_t written = 0;
+        int lastPercent = -1;
+
+        while (written < (size_t)contentLength) {
+
+          size_t available = stream->available();
+
+          if (available > 0) {
+
+            size_t bytesToRead = available;
+
+            if (bytesToRead > bufferSize) {
+              bytesToRead = bufferSize;
+            }
+
+            size_t remaining = contentLength - written;
+
+            if (bytesToRead > remaining) {
+              bytesToRead = remaining;
+            }
+
+            int bytesRead = stream->readBytes(buffer, bytesToRead);
+
+            if (bytesRead > 0) {
+
+              size_t bytesWritten = Update.write(buffer, bytesRead);
+
+              if (bytesWritten != (size_t)bytesRead) {
+                Serial.println("❌ OTA flash write failed");
+                break;
+              }
+
+              written += bytesWritten;
+
+              int percent = (written * 100) / contentLength;
+
+              if (percent != lastPercent) {
+                lastPercent = percent;
+
+                updateOTAProgressDisplay(percent);
+
+                Serial.printf(
+                  "📥 OTA progress: %d%% (%u / %d bytes)\n",
+                  percent,
+                  (unsigned int)written,
+                  contentLength
+                );
+              }
+            }
+
+          } else {
+
+            // Allow TCP/WiFi background tasks to breathe
+            delay(1);
+          }
+        }
         
         if (written == contentLength) {
           Serial.println("✅ Firmware written successfully");
@@ -811,8 +975,31 @@ bool performOTAUpdate() {
         if (Update.end()) {
           if (Update.isFinished()) {
             Serial.println("✅ Update complete. Rebooting...");
+
+            // Force final 100% state
+            updateOTAProgressDisplay(100);
+
+            // Replace status area with completion message
+            tft.fillRect(60, 82, 210, 28, TFT_BLACK);
+
+            tft.setTextColor(TFT_GREEN);
+            tft.setTextSize(2);
+            tft.setCursor(78, 88);
+            tft.print("UPDATE COMPLETE");
+
+            // Replace safety message with restart message
+            tft.fillRect(55, 188, 220, 36, TFT_BLACK);
+
+            tft.setTextColor(TFT_WHITE);
+            tft.setTextSize(1);
+            tft.setCursor(105, 195);
+            tft.print("Restarting CORE...");
+
             http.end();
-            delay(1000);
+
+            // Give the customer time to actually see success
+            delay(2500);
+
             ESP.restart();
             return true;
           } else {
@@ -1267,7 +1454,7 @@ void drawScreen3() {
     tft.setCursor(timeX, 70);
     tft.print(time);
 
-    char monthDay[15];
+    char monthDay[24];
     strftime(monthDay, sizeof(monthDay), "%B %d, %Y", &timeinfo);
 
     // Raised date line under the main time
@@ -1679,6 +1866,124 @@ void startAccessPoint() {
   tft.print("Built by Bitcoin Manor 2026");
 }
 
+ // ============================================================
+// DRAW SETUP COMPLETE SCREEN
+// ============================================================
+
+void drawSetupCompleteScreen()
+{
+  tft.fillScreen(TFT_BLACK);
+
+  // ----------------------------------------------------------
+  // Subtle STACKSWORTH-style grid background
+  // ----------------------------------------------------------
+
+  for (int x = 0; x < 320; x += 30) {
+    tft.drawLine(x, 0, x, 240, 0x2104);
+  }
+
+  for (int y = 0; y < 240; y += 30) {
+    tft.drawLine(0, y, 320, y, 0x2104);
+  }
+
+
+  // ----------------------------------------------------------
+  // STACKSWORTH CORE HEADER
+  // ----------------------------------------------------------
+
+// Logo and header
+  int logoHexX = 52;
+  int logoHexY = 25;
+  int logoHexSize = 12;
+  
+  for (int i = 0; i < 6; i++) {
+    float angle1 = i * 60 * PI / 180;
+    float angle2 = (i + 1) * 60 * PI / 180;
+    int x1 = logoHexX + logoHexSize * cos(angle1);
+    int y1 = logoHexY + logoHexSize * sin(angle1);
+    int x2 = logoHexX + logoHexSize * cos(angle2);
+    int y2 = logoHexY + logoHexSize * sin(angle2);
+    tft.drawLine(x1, y1, x2, y2, TFT_ORANGE);
+  }
+  
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(logoHexX - 4, logoHexY - 7);
+  tft.print("S");
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(75, 18);
+  tft.print("STACKSWORTH");
+  tft.setTextColor(TFT_ORANGE);
+  tft.setCursor(215, 18);
+  tft.print("CORE");
+
+  tft.drawLine(25, 50, 295, 50, TFT_ORANGE);
+
+  // ----------------------------------------------------------
+  // SUCCESS TITLE
+  // ----------------------------------------------------------
+
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(2);
+  tft.setCursor(72, 62);
+  tft.print("SETUP COMPLETE");
+
+
+  // ----------------------------------------------------------
+  // CONNECTION MESSAGE
+  // ----------------------------------------------------------
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(33, 100);
+  tft.print("Your CORE is connected");
+
+
+  // ----------------------------------------------------------
+  // PORTAL INSTRUCTION
+  // ----------------------------------------------------------
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  tft.setCursor(25, 139);
+  tft.print("Customize and Update at");
+
+
+  // ----------------------------------------------------------
+  // CORE.LOCAL
+  // ----------------------------------------------------------
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  tft.setCursor(72, 173);
+  tft.print("core");
+
+
+  tft.setTextColor(TFT_ORANGE);
+  tft.setTextSize(3);
+  tft.setCursor(145, 173);
+  tft.print(".local");
+
+
+  // ----------------------------------------------------------
+  // FOOTER
+  // ----------------------------------------------------------
+
+  tft.drawLine(25, 209, 295, 209, TFT_ORANGE);
+
+  tft.setTextColor(0x8410);
+  tft.setTextSize(2);
+  tft.setCursor(10, 220);
+  tft.print("Where Data Comes to Life.");
+}
+
+
+   
+  // ============================================================
+  // WIFI CONNECTION
+  // ============================================================
+
 void connectWiFi()
 {
   WiFi.mode(WIFI_STA);
@@ -1717,19 +2022,10 @@ void connectWiFi()
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
 
-    // Clear connecting message
-    tft.fillRect(60, 160, 200, 20, TFT_BLACK);
-    tft.setTextColor(TFT_GREEN);
-    tft.setTextSize(2);
-    tft.setCursor(80, 160);
-    tft.print("Connected!");
-
-    tft.setTextColor(TFT_CYAN);
-    tft.setTextSize(1);
-    tft.setCursor(72, 185);
-    tft.print("Portal: core.local");
-
-    delay(1800);
+     // Show branded setup success screen
+    drawSetupCompleteScreen();
+    delay(4000);
+    
     
     // Update indicator if main UI is already shown
     if (initialSetupDone)
