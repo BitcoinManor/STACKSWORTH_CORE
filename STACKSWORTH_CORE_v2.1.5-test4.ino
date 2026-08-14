@@ -1,15 +1,15 @@
 /*****************************************************************
  *
  *  STACKSWORTH CORE
- *  Firmware Version : v2.1.5-test3
+ *  Firmware Version : v2.1.5-test4
  *  Release Name     : OTA TESTING
  *
- *  Release Date     : August 11, 2026
+ *  Release Date     : August 13, 2026
  *
- *  Included in v2.1.5-test3
+ *  Included in v2.1.5-test4
  *  ------------------------------------------------------------
- *  - OTA update support for firmware updates
- *  - New "OTA TESTING" release channel for beta testers
+ *  - OTA fix, make the OTA screen appear before the firmware HTTP 
+ *  connection/download begins, rather than after
  * 
  *
  *  Bitcoin Manor / STACKSWORTH CORE
@@ -136,10 +136,10 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "2.1.5-test3";
+const char* FIRMWARE_VERSION = "2.1.5-test4";
 const char* FIRMWARE_CHANNEL = "OTA TESTING";  // Used for OTA update checks. Change to "STABLE" for production releases
 const char* DEVICE_MODEL = "CORE";
-const char* FIRMWARE_RELEASE_DATE = "August 11, 2026";
+const char* FIRMWARE_RELEASE_DATE = "August 13, 2026";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -887,6 +887,12 @@ bool performOTAUpdate() {
   if (WiFi.status() != WL_CONNECTED) return false;
   
   Serial.println("🔄 Starting OTA update...");
+
+  drawOTAProgressScreen();
+  updateOTAProgressDisplay(0);
+
+  // Give the display a moment to visibly update before network/flash work begins
+  delay(500);
   
   HTTPClient http;
   http.begin(UPDATE_URL);
@@ -902,10 +908,7 @@ bool performOTAUpdate() {
       
       if (canBegin) {
         WiFiClient* stream = http.getStreamPtr();
-
-        drawOTAProgressScreen();
-        updateOTAProgressDisplay(0);
-
+        
         const size_t bufferSize = 4096;
         static uint8_t buffer[bufferSize];
 
