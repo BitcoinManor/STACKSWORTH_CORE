@@ -321,30 +321,210 @@
       box-shadow: 0 0 15px rgba(252, 164, 32, 0.4), inset 0 0 10px rgba(252, 164, 32, 0.1);
     }
 
-    /* 🎮 Hidden Easter Egg Styles */
-    .bitcoin-rain {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 1000;
-      overflow: hidden;
-    }
 
-    .bitcoin-symbol {
-      position: absolute;
-      color: #fca420;
-      font-size: 20px;
-      font-weight: bold;
-      animation: fall 3s linear infinite;
+    .metric-included {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 4px;
     }
+/* ============================================================
+   🎮 STACKSWORTH GENESIS MODE EASTER EGG
+   ============================================================ */
 
-    @keyframes fall {
-      0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
-      100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
-    }
+.genesis-mode {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 99999;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Segoe UI', monospace;
+  animation: genesisFadeIn 0.4s ease forwards;
+}
+
+.genesis-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(252,164,32,0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(252,164,32,0.08) 1px, transparent 1px);
+  background-size: 30px 30px;
+  animation: genesisGridMove 8s linear infinite;
+}
+
+.genesis-scanline {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: rgba(252,164,32,0.6);
+  box-shadow: 0 0 15px #fca420;
+  animation: genesisScan 2.5s linear infinite;
+}
+
+.genesis-content {
+  position: relative;
+  z-index: 3;
+  width: 90%;
+  max-width: 700px;
+  text-align: center;
+}
+
+.genesis-access {
+  color: #5cb85c;
+  font-size: 0.9rem;
+  letter-spacing: 5px;
+  margin-bottom: 18px;
+  animation: genesisBlink 0.7s steps(2) 3;
+}
+
+.genesis-logo {
+  font-size: clamp(2rem, 7vw, 4.5rem);
+  font-weight: 800;
+  letter-spacing: 6px;
+  color: white;
+  text-shadow: 0 0 20px rgba(255,255,255,0.3);
+}
+
+.genesis-logo span {
+  color: #fca420;
+  text-shadow:
+    0 0 10px #fca420,
+    0 0 30px rgba(252,164,32,0.8);
+}
+
+.genesis-divider {
+  height: 2px;
+  margin: 22px auto;
+  width: 0;
+  background: #fca420;
+  box-shadow: 0 0 12px #fca420;
+  animation: genesisDivider 1s ease forwards 0.5s;
+}
+
+.genesis-title {
+  color: #fca420;
+  font-size: 1.4rem;
+  letter-spacing: 7px;
+  font-weight: bold;
+  margin-bottom: 20px;
+  opacity: 0;
+  animation: genesisAppear 0.6s ease forwards 1.2s;
+}
+
+.genesis-block {
+  font-size: clamp(3rem, 12vw, 6rem);
+  font-weight: 900;
+  color: white;
+  opacity: 0;
+  animation:
+    genesisAppear 0.5s ease forwards 2s,
+    genesisPulse 1.8s ease-in-out infinite 2.5s;
+}
+
+.genesis-date {
+  color: #aaa;
+  letter-spacing: 3px;
+  margin-top: 8px;
+  opacity: 0;
+  animation: genesisAppear 0.5s ease forwards 2.7s;
+}
+
+.genesis-message {
+  margin: 30px auto 0;
+  padding: 18px;
+  max-width: 580px;
+  border-left: 3px solid #fca420;
+  border-right: 3px solid #fca420;
+  color: #ddd;
+  line-height: 1.7;
+  font-size: 0.95rem;
+  opacity: 0;
+  animation: genesisAppear 0.8s ease forwards 3.6s;
+}
+
+.genesis-final {
+  color: #fca420;
+  font-size: 1.25rem;
+  font-weight: bold;
+  letter-spacing: 5px;
+  margin-top: 28px;
+  opacity: 0;
+  animation: genesisAppear 0.8s ease forwards 6s;
+}
+
+.genesis-block-particle {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1px solid #fca420;
+  opacity: 0.5;
+  animation: genesisParticle linear forwards;
+}
+
+@keyframes genesisFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes genesisAppear {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes genesisBlink {
+  50% { opacity: 0; }
+}
+
+@keyframes genesisDivider {
+  to { width: 100%; }
+}
+
+@keyframes genesisPulse {
+  0%, 100% {
+    text-shadow: 0 0 8px rgba(252,164,32,0.2);
+  }
+  50% {
+    text-shadow:
+      0 0 18px #fca420,
+      0 0 45px rgba(252,164,32,0.6);
+  }
+}
+
+@keyframes genesisGridMove {
+  from { background-position: 0 0; }
+  to   { background-position: 30px 30px; }
+}
+
+@keyframes genesisScan {
+  from { top: -5px; }
+  to   { top: 100%; }
+}
+
+@keyframes genesisParticle {
+  from {
+    transform: translateY(110vh) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  to {
+    transform: translateY(-20vh) rotate(540deg);
+    opacity: 0;
+  }
+}
 
     .block-countdown {
       background: linear-gradient(45deg, #fca420, #ff8800);
@@ -444,11 +624,14 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="tempunit">Temperature</label>
+            <label for="tempunit">Weather Unit</label>
             <select id="tempunit" name="tempunit">
               <option value="F" selected>Fahrenheit (°F)</option>
               <option value="C">Celsius (°C)</option>
             </select>
+          </div>
+          <div style="color: #666; font-size: 0.75rem; margin-top: 8px; text-align: center;">
+            Used on the Time Focus screen beside your city.
           </div>
         </div>
 
@@ -469,9 +652,9 @@
             🔄 FIRMWARE UPDATES
           </div>
           <div style="color: #888; font-size: 0.9rem; margin-bottom: 15px; text-align: center;">
-            Current Version: <span style="color: #fca420;">v1.0.9</span>
+            Installed Version: <span id="installedFirmwareVersion" style="color: #fca420;">Loading...</span>
           </div>
-          <button class="button" onclick="checkForUpdates()" style="margin-top: 0; background: linear-gradient(145deg, #555, #888);">
+          <button id="checkUpdateBtn" class="button" onclick="checkForUpdates()" style="margin-top: 0; background: linear-gradient(145deg, #555, #888);">
             🔍 CHECK FOR UPDATES
           </button>
           <div id="updateStatus" style="margin-top: 15px; font-size: 0.85rem; color: #888;"></div>
@@ -511,53 +694,24 @@
         <!-- 📊 DISPLAY METRICS -->
         <div class="personalization-box" style="margin: 20px 0; padding: 20px; border: 2px dashed #fca420; border-radius: 8px; background: rgba(252, 164, 32, 0.05);">
           <div style="color: #fca420; font-weight: bold; margin-bottom: 15px; text-align: center;">
-            📊 DISPLAY METRICS
+            📊 WHAT YOUR CORE DISPLAYS
           </div>
           <div style="color: #888; font-size: 0.85rem; margin-bottom: 15px; text-align: center;">
-            Select which data to display on your CORE:
+            These Bitcoin metrics are included on the three touch screens:
           </div>
           
           <div style="display: grid; grid-template-columns: 1fr; gap: 8px; font-size: 0.9rem;">
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>📦 Block Height</span>
-              <input type="checkbox" id="show0" checked style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>⛏️ Miner Name</span>
-              <input type="checkbox" id="show1" checked style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>💰 Price</span>
-              <input type="checkbox" id="show3" checked style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>📈 24H Change</span>
-              <input type="checkbox" id="show2" style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>⚡ Fee Rate</span>
-              <input type="checkbox" id="show8" checked style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>🏦 Market Cap</span>
-              <input type="checkbox" id="show4" style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>💎 Sats/USD</span>
-              <input type="checkbox" id="show5" style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>🪙 Circulating Supply</span>
-              <input type="checkbox" id="show6" style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>⏰ Time/City</span>
-              <input type="checkbox" id="show10" checked style="width: auto; margin: 0;">
-            </label>
-            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-              <span>📅 Date/Day</span>
-              <input type="checkbox" id="show11" checked style="width: auto; margin: 0;">
-            </label>
+            <div class="metric-included"><span>📦 Block Height</span><span>✅</span></div>
+            <div class="metric-included"><span>⛏️ Miner Name</span><span>✅</span></div>
+            <div class="metric-included"><span>💰 Bitcoin Price</span><span>✅</span></div>
+            <div class="metric-included"><span>📈 24H Change</span><span>✅</span></div>
+            <div class="metric-included"><span>⚡ Fee Rate</span><span>✅</span></div>
+            <div class="metric-included"><span>💎 Sats per Dollar</span><span>✅</span></div>
+            <div class="metric-included"><span>⏰ Time, City & Weather</span><span>✅</span></div>
+            <div class="metric-included"><span>📅 Date & Day</span><span>✅</span></div>
+          </div>
+          <div style="color: #666; font-size: 0.75rem; margin-top: 12px; text-align: center;">
+            CORE uses a fixed curated layout so every unit matches the product photos.
           </div>
         </div>
       </div>
@@ -565,7 +719,7 @@
 
     <button class="button" onclick="saveAndReboot()" style="margin-top: 30px;">SAVE AND REBOOT</button>
     <div class="version" style="margin-top: 15px;">
-      v1.0.9 – 2026
+      STACKSWORTH CORE
       <div style="margin-top: 8px; font-size: 0.8rem; color: #888;">
         Built by <a href="https://bitcoinmanor.com" target="_blank" style="color: #fca420; text-decoration: none;">BitcoinManor.com</a>
       </div>
@@ -616,21 +770,47 @@
 
   let currentQuoteIndex = 0;
   let konamiActivated = false;
+  let expectedFirmwareVersion = null;
   
   // 🔍 Load device info on page load
-  function loadDeviceInfo() {
-    fetch('/deviceinfo')
-      .then(response => response.json())
-      .then(data => {
-        if (data.macid) {
-          document.getElementById('deviceMacId').textContent = data.macid;
-        }
-      })
-      .catch(error => {
-        console.error('Error loading device info:', error);
-        document.getElementById('deviceMacId').textContent = 'Error';
+ function loadDeviceInfo() {
+  fetch('/deviceinfo')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      // Device MAC ID
+      if (data.macid) {
+        document.getElementById('deviceMacId').textContent = data.macid;
+      } else {
+        document.getElementById('deviceMacId').textContent = 'Unknown';
+      }
+
+      // Installed firmware version
+      if (data.version) {
+        document.getElementById('installedFirmwareVersion').textContent = data.version;
+      } else {
+        document.getElementById('installedFirmwareVersion').textContent = 'Unknown';
+      }
+
+      // Useful development logging
+      console.log('CORE Device Info:', {
+        model: data.model || 'CORE',
+        version: data.version || 'Unknown',
+        channel: data.channel || 'Unknown',
+        macid: data.macid || 'Unknown'
       });
-  }
+    })
+    .catch(error => {
+      console.error('Error loading device info:', error);
+
+      document.getElementById('deviceMacId').textContent = 'Unavailable';
+      document.getElementById('installedFirmwareVersion').textContent = 'Unavailable';
+    });
+}
   
   // 🔍 Identify device - blink display
   function identifyDevice() {
@@ -690,6 +870,7 @@
       .then(response => response.json())
       .then(data => {
         if (data.updateAvailable) {
+          expectedFirmwareVersion = data.latestVersion;
           statusDiv.innerHTML = `🎉 New version available: ${data.latestVersion}`;
           statusDiv.style.color = '#5cb85c';
           installBtn.style.display = 'block';
@@ -709,29 +890,145 @@
   }
   
   function installUpdate() {
-    const statusDiv = document.getElementById('updateStatus');
-    const installBtn = document.getElementById('installUpdateBtn');
-    const checkBtn = document.querySelector('button[onclick="checkForUpdates()"]');
-    
-    installBtn.disabled = true;
-    checkBtn.disabled = true;
-    installBtn.innerHTML = '⏳ Installing...';
-    statusDiv.innerHTML = '📥 Downloading firmware...<br>Please wait, device will reboot automatically';
-    statusDiv.style.color = '#fca420';
-    
-    fetch('/doupdate')
+  const statusDiv = document.getElementById('updateStatus');
+  const installBtn = document.getElementById('installUpdateBtn');
+  const checkBtn = document.getElementById('checkUpdateBtn');
+
+  installBtn.disabled = true;
+  checkBtn.disabled = true;
+
+  installBtn.innerHTML = '⏳ INSTALLING...';
+
+  statusDiv.innerHTML =
+    '📥 Firmware update started...<br>' +
+    '<span style="color:#888;">Watch your CORE display for live progress.</span>';
+
+  statusDiv.style.color = '#fca420';
+
+  fetch('/doupdate')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      statusDiv.innerHTML =
+        '🔄 Firmware is installing...<br>' +
+        '<span style="color:#888;">CORE will restart automatically.</span>';
+
+      statusDiv.style.color = '#fca420';
+
+      // Give CORE time to begin OTA and restart
+      setTimeout(() => {
+        waitForCoreToReturn();
+      }, 5000);
+    })
+    .catch(error => {
+      // Losing connection is normal during OTA/reboot
+      console.log('CORE connection changed during OTA:', error);
+
+      statusDiv.innerHTML =
+        '🔄 CORE is restarting...<br>' +
+        '<span style="color:#888;">Waiting for device to come back online.</span>';
+
+      statusDiv.style.color = '#fca420';
+
+      setTimeout(() => {
+        waitForCoreToReturn();
+      }, 5000);
+    });
+}
+
+
+function waitForCoreToReturn() {
+  const statusDiv = document.getElementById('updateStatus');
+  const installBtn = document.getElementById('installUpdateBtn');
+  const checkBtn = document.getElementById('checkUpdateBtn');
+
+  let attempts = 0;
+  const maxAttempts = 40; // ~2 minutes at 3 sec intervals
+
+  statusDiv.innerHTML =
+    '🔎 Waiting for CORE...<br>' +
+    '<span style="color:#888;">Reconnecting after firmware update.</span>';
+
+  statusDiv.style.color = '#fca420';
+
+  const poll = setInterval(() => {
+    attempts++;
+
+    fetch('/deviceinfo', {
+      cache: 'no-store'
+    })
       .then(response => {
-        if (response.ok) {
-          statusDiv.innerHTML = '✅ Update successful! Device is rebooting...';
-          statusDiv.style.color = '#5cb85c';
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
+
+        return response.json();
+      })
+      .then(data => {
+
+  if (expectedFirmwareVersion && data.version !== expectedFirmwareVersion) {
+    console.log(
+      `CORE still running ${data.version}; waiting for ${expectedFirmwareVersion}`
+    );
+
+    statusDiv.innerHTML =
+      '🔄 Firmware installation in progress...<br>' +
+      `<span style="color:#888;">Waiting for CORE ${expectedFirmwareVersion} to come online.</span>`;
+
+    return;
+  }
+
+  clearInterval(poll);
+
+        // Update displayed installed firmware version
+        if (data.version) {
+          document.getElementById('installedFirmwareVersion').textContent =
+            data.version;
+        }
+
+        statusDiv.innerHTML =
+          '✅ UPDATE COMPLETE<br>' +
+          `<span style="color:#ccc;">CORE ${data.version || ''} is online and ready.</span>`;
+
+        statusDiv.style.color = '#5cb85c';
+
+        // Reset controls
+        installBtn.style.display = 'none';
+        installBtn.disabled = false;
+        installBtn.innerHTML = '📥 INSTALL UPDATE';
+
+        checkBtn.disabled = false;
+        checkBtn.innerHTML = '🔍 CHECK FOR UPDATES';
+
+        // Refresh all device info
+        loadDeviceInfo();
+
+        console.log('✅ CORE returned after OTA:', data);
       })
       .catch(error => {
-        console.warn("Update started - connection may drop during reboot");
-        statusDiv.innerHTML = '✅ Update in progress... Device will reboot';
-        statusDiv.style.color = '#5cb85c';
+        console.log(`Waiting for CORE... attempt ${attempts}/${maxAttempts}`);
+
+        if (attempts >= maxAttempts) {
+          clearInterval(poll);
+
+          statusDiv.innerHTML =
+            '⚠️ Update may be complete, but CORE has not reconnected yet.<br>' +
+            '<span style="color:#aaa;">Please refresh this page after CORE returns to the main screen.</span>';
+
+          statusDiv.style.color = '#f0ad4e';
+
+          checkBtn.disabled = false;
+          checkBtn.innerHTML = '🔍 CHECK FOR UPDATES';
+
+          installBtn.disabled = false;
+          installBtn.innerHTML = '📥 INSTALL UPDATE';
+        }
       });
-  }
+
+  }, 3000);
+}
 
   function saveAndReboot() {
     const saveBtn = event.target;
@@ -747,13 +1044,6 @@
     form.append("devicename", document.getElementById("devicename").value);
     form.append("brightness", document.getElementById("brightness").value);
     
-    // Add all display option checkboxes
-    for (let i = 0; i < 12; i++) {
-      const checkbox = document.getElementById("show" + i);
-      if (checkbox) {
-        form.append("show" + i, checkbox.checked ? "1" : "0");
-      }
-    }
 
     fetch("/save", {
       method: "POST",
@@ -800,35 +1090,90 @@
     }
   }
 
-  // 🎮 Bitcoin Rain Easter Egg (Konami Code)
-  function startBitcoinRain() {
-    if (konamiActivated) return;
-    konamiActivated = true;
-    
-    const rainContainer = document.createElement('div');
-    rainContainer.className = 'bitcoin-rain';
-    document.body.appendChild(rainContainer);
+  // 🎮 Easter Egg (Konami Code)
+  function startGenesisMode() {
+  if (konamiActivated) return;
+  konamiActivated = true;
 
-    const symbols = ['₿', '🪙', '💰', '💸', '💵', '💴', '💶', '💷', '₿', '🪙', '💰', '💸', '₿'];
-    
-    for (let i = 0; i < 21; i++) {
-      setTimeout(() => {
-        const symbol = document.createElement('div');
-        symbol.className = 'bitcoin-symbol';
-        symbol.textContent = symbols[Math.floor(Math.random() * symbols.length)];
-        symbol.style.left = Math.random() * 100 + '%';
-        symbol.style.animationDelay = Math.random() * 2 + 's';
-        rainContainer.appendChild(symbol);
-      }, i * 200);
-    }
+  const overlay = document.createElement('div');
+  overlay.className = 'genesis-mode';
+
+  overlay.innerHTML = `
+    <div class="genesis-grid"></div>
+    <div class="genesis-scanline"></div>
+
+    <div class="genesis-content">
+
+      <div class="genesis-access">
+        ACCESS GRANTED
+      </div>
+
+      <div class="genesis-logo">
+        STACKSWORTH <span>CORE</span>
+      </div>
+
+      <div class="genesis-divider"></div>
+
+      <div class="genesis-title">
+        GENESIS MODE
+      </div>
+
+      <div class="genesis-block">
+        BLOCK 0
+      </div>
+
+      <div class="genesis-date">
+        JANUARY 3, 2009
+      </div>
+
+      <div class="genesis-message">
+        THE TIMES 03/JAN/2009<br>
+        CHANCELLOR ON BRINK OF SECOND BAILOUT FOR BANKS
+      </div>
+
+      <div class="genesis-final">
+        DON'T TRUST. VERIFY.
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Floating "block" particles
+  for (let i = 0; i < 30; i++) {
+
+    const particle = document.createElement('div');
+    particle.className = 'genesis-block-particle';
+
+    particle.style.left = Math.random() * 100 + '%';
+    particle.style.animationDuration =
+      (3 + Math.random() * 5) + 's';
+
+    particle.style.animationDelay =
+      Math.random() * 3 + 's';
+
+    overlay.appendChild(particle);
+  }
+
+  // Finish sequence and return to portal
+  setTimeout(() => {
+
+    overlay.style.transition = 'opacity 1s ease';
+    overlay.style.opacity = '0';
 
     setTimeout(() => {
-      if (rainContainer.parentNode) {
-        rainContainer.parentNode.removeChild(rainContainer);
+
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
       }
+
       konamiActivated = false;
-    }, 8000);
-  }
+
+    }, 1000);
+
+  }, 9000);
+}
 
   // 🧠 Rotate Satoshi quotes
   function rotateSatoshiQuote() {
@@ -845,7 +1190,7 @@
     
     if (konamiCode.length === konamiSequence.length && 
         konamiCode.every((code, index) => code === konamiSequence[index])) {
-      startBitcoinRain();
+      startGenesisMode();
       konamiCode = [];
     }
   });
@@ -859,7 +1204,7 @@
       setInterval(rotateSatoshiQuote, 10000);
       
       console.log('🎮 Try the Konami Code: ↑↑↓↓←→←→BA');
-      console.log('🚀 STACKSWORTH CORE v1.0.9 - Built by Bitcoin Manor');
+      console.log('🚀 STACKSWORTH CORE Portal - Built by Bitcoin Manor');
       console.log('⚡ Bitcoin TFT Display with live data updates!');
     } catch (error) {
       console.log('🔧 Portal initialized in minimal mode');
