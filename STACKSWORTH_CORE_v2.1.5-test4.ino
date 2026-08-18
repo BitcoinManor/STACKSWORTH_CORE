@@ -1,16 +1,16 @@
 /*****************************************************************
  *
  *  STACKSWORTH CORE
- *  Firmware Version : v2.1.5-test4
- *  Release Name     : OTA TESTING
+ *  Firmware Version : v2.2.1
+ *  Release Name     : STABLE
  *
- *  Release Date     : August 13, 2026
+ *  Release Date     : August 16, 2026
  *
- *  Included in v2.1.5-test4
+ *     Included in v2.2.1
  *  ------------------------------------------------------------
- *  - OTA fix, make the OTA screen appear before the firmware HTTP 
- *  connection/download begins, rather than after
- * 
+ *  - Added "Loading Bitcoin data..." message to the Setup Complete
+ *    screen so users know CORE is still fetching initial metrics.
+ *  - Improves startup clarity on slower or unstable network connections.
  *
  *  Bitcoin Manor / STACKSWORTH CORE
  *  Where Data Comes to Life.
@@ -136,10 +136,10 @@ public:
 LGFX tft;
 
 // 🌍 API Endpoints & Configuration
-const char* FIRMWARE_VERSION = "2.1.5-test4";
-const char* FIRMWARE_CHANNEL = "OTA TESTING";  // Used for OTA update checks. Change to "STABLE" for production releases
+const char* FIRMWARE_VERSION = "2.2.1";
+const char* FIRMWARE_CHANNEL = "STABLE";
 const char* DEVICE_MODEL = "CORE";
-const char* FIRMWARE_RELEASE_DATE = "August 13, 2026";
+const char* FIRMWARE_RELEASE_DATE = "August 16, 2026";
 const char* SATONAK_BASE = "https://satonak.bitcoinmanor.com";
 const char* SATONAK_PRICE = "/api/price";
 const char* SATONAK_HEIGHT = "/api/height";
@@ -1074,7 +1074,8 @@ void updateChange24hDisplay() {
 void updateCurrencyTagDisplay() {
   // Bottom-right of the large Bitcoin Price card
   tft.fillRect(190, 122, 35, 12, TFT_BLACK);
-  tft.setTextColor(0x528A);  // dim gray
+  //tft.setTextColor(0x528A);  // dim gray
+  tft.setTextColor(TFT_ORANGE);
   tft.setTextSize(1);
   tft.setCursor(202, 124);
   tft.print(savedCurrency);
@@ -1287,8 +1288,7 @@ void drawScreen1() {
   tft.print("FEE");
   updateFeeDisplay();
   
-  // Date/Time
-  updateDateTimeDisplay();
+  
   
   // Bottom bar: wider text boxes for Block and Miner, compact LIVE on right
   int barY = 175;
@@ -1315,6 +1315,9 @@ void drawScreen1() {
   
   // Screen indicators with footer
   drawScreenIndicators();
+
+  // Date/Time
+  updateDateTimeDisplay();
 }
 
 // Screen 2: Block Focus - Large block height with miner
@@ -1939,8 +1942,19 @@ void drawSetupCompleteScreen()
 
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(33, 100);
+  tft.setCursor(33, 87);
   tft.print("Your CORE is connected");
+
+
+  
+// ----------------------------------------------------------
+// LOADING MESSAGE
+// ----------------------------------------------------------
+
+tft.setTextColor(TFT_ORANGE);
+tft.setTextSize(2);
+tft.setCursor(30, 115);
+tft.print("Loading Bitcoin data...");
 
 
   // ----------------------------------------------------------
@@ -1949,7 +1963,7 @@ void drawSetupCompleteScreen()
 
   tft.setTextColor(TFT_CYAN);
   tft.setTextSize(2);
-  tft.setCursor(25, 139);
+  tft.setCursor(25, 146);
   tft.print("Customize and Update at");
 
 
@@ -2027,7 +2041,7 @@ void connectWiFi()
 
      // Show branded setup success screen
     drawSetupCompleteScreen();
-    delay(4000);
+    delay(2000);
     
     
     // Update indicator if main UI is already shown
@@ -2351,45 +2365,64 @@ void setup()
   }
   
   // Only draw main UI if NOT in AP mode
-  if (!apMode) {
-    // 🚀 Initial data fetch if WiFi is connected
-    if (wifiConnected) {
-      Serial.println("🔄 Fetching initial Bitcoin data...");
-      
-      // 🌍 Configure timezone using portal timezone index (auto-handles DST)
-      applyTimezone();
-      
-      // Fetch all data before drawing screens
-      fetchPriceFromSatonak();
-      lastPriceFetch = millis();
-      delay(500);
-      
-      fetchHeightFromSatonak();
-      lastHeightFetch = millis();
-      lastAnnouncedBlockHeight = blockHeight;  // Establish baseline so boot does not trigger a new-block alert
-      delay(500);
-      
-      fetchMinerFromSatonak();
-      lastMinerFetch = millis();
-      delay(500);
-      
-      fetchFeeFromSatonak();
-      lastFeeFetch = millis();
-      delay(1000);
-      
-      fetchChange24hFromSatonak();
-      lastChange24hFetch = millis();
-      delay(500);
+if (!apMode) {
 
-      fetchWeather();
-      lastWeatherFetch = millis();
-      
-      Serial.println("✅ Initial data fetch complete!");
-    }
+  // Start time sync before drawing Dashboard
+  if (wifiConnected) {
+    applyTimezone();
+  }
+
+  // Draw Dashboard immediately after Setup Complete.
+  // Do not keep the customer waiting while internet/API calls run.
+  drawScreen1();
+
+  // 🚀 Initial data fetch if WiFi is connected
+  if (wifiConnected) {
+    Serial.println("🔄 Fetching initial Bitcoin data...");
+
     
-    // Draw initial screen (Dashboard)
-    drawScreen1();
-    Serial.println("📱 Touch screen enabled - tap to cycle through screens");
+
+    // Fetch initial data while Dashboard is already visible
+    if (fetchPriceFromSatonak()) {
+      updatePriceDisplay();
+      updateSatsPerDollarDisplay();
+    }
+    lastPriceFetch = millis();
+    delay(500);
+
+    if (fetchHeightFromSatonak()) {
+      updateBlockHeightDisplay();
+    }
+    lastHeightFetch = millis();
+    lastAnnouncedBlockHeight = blockHeight;
+    delay(500);
+
+    if (fetchMinerFromSatonak()) {
+      updateMinerDisplay();
+    }
+    lastMinerFetch = millis();
+    delay(500);
+
+    if (fetchFeeFromSatonak()) {
+      updateFeeDisplay();
+    }
+    lastFeeFetch = millis();
+    delay(1000);
+
+    if (fetchChange24hFromSatonak()) {
+      updateChange24hDisplay();
+    }
+    lastChange24hFetch = millis();
+    delay(500);
+
+    fetchWeather();
+    lastWeatherFetch = millis();
+
+    Serial.println("✅ Initial data fetch complete!");
+
+  }
+
+  Serial.println("📱 Touch screen enabled - tap to cycle through screens");
     
     // Test touch initialization - try multiple times
     Serial.println("🔍 Touch controller test:");
@@ -2546,11 +2579,21 @@ void loop()
       }
     }
 
-    // Fetch price every 5 minutes
-    if (now - lastPriceFetch >= INTERVAL_PRICE) {
-      if (fetchPriceFromSatonak()) {
-        lastPriceFetch = now;
-        
+    // Fetch price every 5 minutes once loaded.
+    // If startup price is still missing, retry every 10 seconds.
+    unsigned long priceFetchInterval =
+        (btcPrice > 0) ? INTERVAL_PRICE : 10UL * 1000UL;
+
+    if (now - lastPriceFetch >= priceFetchInterval) {
+
+      bool priceSuccess = fetchPriceFromSatonak();
+
+      // Record every attempt so a failed connection retries at a
+      // controlled 10-second interval instead of continuously.
+      lastPriceFetch = now;
+
+      if (priceSuccess) {
+
         // Update displays based on active screen
         if (currentScreen == 0) {
           updatePriceDisplay();
